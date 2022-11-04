@@ -383,7 +383,8 @@ Saving Checkpoints to Google Cloud Storage (GCS)
 ------------------------------------------------
 
 To save checkpoints to GCS, make sure to create a :class:`.RemoteUploaderDownloader` instance
-and pass it to the ``loggers`` argument of :class:`.Trainer`.
+and pass it to the ``loggers`` argument of :class:`.Trainer`. Make sure you have `libcloud`
+installed.
 
 Make sure to input your `HMAC access id and secret <https://cloud.google.com/storage/docs/authentication/hmackeys/>`__
 as `'key'` and `'secret'` respectively to the :class:`.RemoteUploaderDownloader` constructor like so:
