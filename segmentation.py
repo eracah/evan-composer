@@ -235,7 +235,7 @@ def _main():
     precision = 'amp' if device == 'gpu' else 'fp32'  # Mixed precision for fast training when using a GPU
     grad_accum = 'auto' if device == 'gpu' else 1  # If on GPU, use 'auto' gradient accumulation
     trainer = Trainer(
-        run_name='daniel-test-log-images-15',
+        run_name='evan-test-log-images-15',
         model=composer_model,
         train_dataloader=train_dataspec,
         eval_dataloader=val_dataspec,
