@@ -11,11 +11,11 @@ from torchvision.transforms.functional import InterpolationMode
 
 from composer import DataSpec, Time, Trainer
 from composer.algorithms import EMA, SAM, ChannelsLast, MixUp
-from composer.callbacks import CheckpointSaver, LRMonitor, SpeedMonitor, ImageVisualizer
+from composer.callbacks import CheckpointSaver, ImageVisualizer, LRMonitor, SpeedMonitor
 from composer.datasets.ade20k import (ADE20k, PadToSize, PhotometricDistoration, RandomCropPair, RandomHFlipPair,
                                       RandomResizePair)
 from composer.datasets.utils import NormalizationFn, pil_image_collate
-from composer.loggers import WandBLogger, CometMLLogger
+from composer.loggers import CometMLLogger, WandBLogger
 from composer.loss import DiceLoss, soft_cross_entropy
 from composer.metrics import CrossEntropy, MIoU
 from composer.models import ComposerClassifier
@@ -120,10 +120,8 @@ def _main():
     logging.info('Building evaluation dataloader')
 
     # Validation image and target transformations
-    image_transforms = transforms.Resize(size=(512, 512),
-                                         interpolation=InterpolationMode.BILINEAR)
-    target_transforms = transforms.Resize(size=(512, 512),
-                                          interpolation=InterpolationMode.NEAREST)
+    image_transforms = transforms.Resize(size=(512, 512), interpolation=InterpolationMode.BILINEAR)
+    target_transforms = transforms.Resize(size=(512, 512), interpolation=InterpolationMode.NEAREST)
 
     # Create ADE20k validation dataset
     val_dataset = ADE20k(datadir=data_dir,
@@ -203,10 +201,7 @@ def _main():
 
     logging.info('Building optimizer and learning rate scheduler')
     # Optimizer
-    optimizer = DecoupledSGDW(composer_model.parameters(),
-                              lr=0.08,
-                              momentum=0.9,
-                              weight_decay=5.0e-05)
+    optimizer = DecoupledSGDW(composer_model.parameters(), lr=0.08, momentum=0.9, weight_decay=5.0e-05)
 
     lr_scheduler = CosineAnnealingScheduler()
 
@@ -223,8 +218,8 @@ def _main():
     logging.info('Built algorithm recipes\n')
 
     # Weight and Biases logger if specified in commandline
-    wandb_logger = WandBLogger(entity='mosaic-ml', project='daniel-debug')
-    comet_logger = CometMLLogger(workspace='mosaic_ml', project_name='daniel-test')
+    wandb_logger = WandBLogger()
+    comet_logger = CometMLLogger()
     image_viz = ImageVisualizer(interval='10ba', mode='input', num_images=2)
     logging.info('Built Weights and Biases logger')
 
@@ -233,22 +228,23 @@ def _main():
     device = 'gpu' if torch.cuda.is_available() else 'cpu'
     precision = 'amp' if device == 'gpu' else 'fp32'  # Mixed precision for fast training when using a GPU
     grad_accum = 'auto' if device == 'gpu' else 1  # If on GPU, use 'auto' gradient accumulation
-    trainer = Trainer(run_name='daniel-test-log-images-15',
-                      model=composer_model,
-                      train_dataloader=train_dataspec,
-                      eval_dataloader=val_dataspec,
-                      eval_interval='1ep',
-                      optimizers=optimizer,
-                      schedulers=lr_scheduler,
-                    #   algorithms=algorithms,
-                      loggers=[wandb_logger, comet_logger],
-                      max_duration='1ep',
-                      callbacks=[speed_monitor, lr_monitor, checkpoint_saver, image_viz],
-                    #   load_path=args.load_checkpoint_path,
-                      device=device,
-                      precision=precision,
-                      grad_accum=grad_accum,
-                      seed=12)
+    trainer = Trainer(
+        run_name='daniel-test-log-images-15',
+        model=composer_model,
+        train_dataloader=train_dataspec,
+        eval_dataloader=val_dataspec,
+        eval_interval='1ep',
+        optimizers=optimizer,
+        schedulers=lr_scheduler,
+        #   algorithms=algorithms,
+        loggers=[wandb_logger, comet_logger],
+        max_duration='1ep',
+        callbacks=[speed_monitor, lr_monitor, checkpoint_saver, image_viz],
+        #   load_path=args.load_checkpoint_path,
+        device=device,
+        precision=precision,
+        grad_accum=grad_accum,
+        seed=12)
     logging.info('Built Trainer\n')
 
     # Start training!

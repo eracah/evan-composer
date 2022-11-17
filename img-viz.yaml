@@ -1,0 +1,18 @@
+# the run name is a unique identifier for the run
+# this will also be used as the default name for tensorboard, checkpoint directories, etc
+run_name: mnist-example
+gpu_type: a100_40gb
+gpu_num: 8
+platform: r1z2
+image: mosaicml/pytorch:latest
+integrations:
+  - integration_type: "git_repo"
+    git_repo: eracah/evan-composer
+    git_branch: log-image-test
+    pip_install: .[all]
+
+  - integration_type: "wandb"
+    project: evan-tb-test
+    entity: mosaic-ml
+command: |
+  composer evan-composer/segmentation.py
