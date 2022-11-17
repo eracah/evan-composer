@@ -36,6 +36,7 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument('--train_batch_size', help='Train dataloader per-device batch size', type=int, default=128)
 parser.add_argument('--eval_batch_size', help='Validation dataloader per-device batch size', type=int, default=128)
+
 args = parser.parse_args()
 
 def _main():
@@ -48,10 +49,12 @@ def _main():
     logging.info('Building train dataloader')
 
     data_dir = './'
-    torchvision.datasets.utils.download_and_extract_archive(url=ADE20K_URL,
-                                                            download_root=data_dir,
-                                                            filename=ADE20K_FILE,
-                                                            remove_finished=True)
+    data_dir = os.path.join(data_dir, 'ADEChallengeData2016')
+    if not os.path.exists(data_dir):
+        torchvision.datasets.utils.download_and_extract_archive(url=ADE20K_URL,
+                                                                download_root=data_dir,
+                                                                filename=ADE20K_FILE,
+                                                                remove_finished=True)
     # Adjust the data_dir to include the extracted directory
     data_dir = os.path.join(data_dir, 'ADEChallengeData2016')
     #os.makedirs(data_dir, exist_ok=True)
