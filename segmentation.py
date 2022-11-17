@@ -56,7 +56,7 @@ def _main():
                                                                 filename=ADE20K_FILE,
                                                                 remove_finished=True)
     # Adjust the data_dir to include the extracted directory
-    data_dir = os.path.join(data_dir, 'ADEChallengeData2016')
+    # data_dir = os.path.join(data_dir, 'ADEChallengeData2016')
     #os.makedirs(data_dir, exist_ok=True)
 
     # Training transforms applied to both the image and target
