@@ -226,7 +226,7 @@ def _main():
     # Weight and Biases logger if specified in commandline
     wandb_logger = WandBLogger()
     comet_logger = CometMLLogger()
-    image_viz = ImageVisualizer(interval='10ba', mode='input', num_images=2)
+    image_viz = ImageVisualizer(interval='10ba', mode='segmentation', num_images=2)
     logging.info('Built Weights and Biases logger')
 
     # Create the Trainer!
