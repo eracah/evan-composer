@@ -2,8 +2,8 @@
 # this will also be used as the default name for tensorboard, checkpoint directories, etc
 run_name: mnist-example
 gpu_type: a100_40gb
-gpu_num: 8
-platform: r1z2
+gpu_num: 1
+platform: r7z2
 image: mosaicml/pytorch:latest
 integrations:
   - integration_type: "git_repo"
@@ -14,5 +14,9 @@ integrations:
   - integration_type: "wandb"
     project: evan-tb-test
     entity: mosaic-ml
+    
+  - integration_type: comet_ml
+    project_name: evan-test
+    workspace: mosaic-ml
 command: |
   composer evan-composer/segmentation.py

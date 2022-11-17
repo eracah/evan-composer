@@ -32,6 +32,11 @@ IMAGENET_CHANNEL_STD = (int(0.229 * 255), int(0.224 * 255), int(0.225 * 255))
 ADE20K_URL = 'http://data.csail.mit.edu/places/ADEchallenge/ADEChallengeData2016.zip'
 ADE20K_FILE = 'ADEChallengeData2016.zip'
 
+parser = argparse.ArgumentParser()
+
+parser.add_argument('--train_batch_size', help='Train dataloader per-device batch size', type=int, default=128)
+parser.add_argument('--eval_batch_size', help='Validation dataloader per-device batch size', type=int, default=128)
+args = parser.parse_args()
 
 def _main():
     # Divide batch size by number of devices
@@ -49,6 +54,7 @@ def _main():
     #                                                         remove_finished=True)
     # Adjust the data_dir to include the extracted directory
     data_dir = os.path.join(data_dir, 'ADEChallengeData2016')
+    os.makedirs(data_dir, exist_ok=True)
 
     # Training transforms applied to both the image and target
     train_both_transforms = torch.nn.Sequential(
