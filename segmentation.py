@@ -49,15 +49,16 @@ def _main():
     logging.info('Building train dataloader')
 
     data_dir = './'
-    data_dir = os.path.join(data_dir, 'ADEChallengeData2016')
+
 
     torchvision.datasets.utils.download_and_extract_archive(url=ADE20K_URL,
                                                                 download_root=data_dir,
                                                                 filename=ADE20K_FILE,
                                                                 remove_finished=True)
+
     # Adjust the data_dir to include the extracted directory
-    # data_dir = os.path.join(data_dir, 'ADEChallengeData2016')
-    #os.makedirs(data_dir, exist_ok=True)
+    data_dir = os.path.join(data_dir, 'ADEChallengeData2016')
+
 
     # Training transforms applied to both the image and target
     train_both_transforms = torch.nn.Sequential(
