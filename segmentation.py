@@ -50,8 +50,8 @@ def _main():
 
     data_dir = './'
     data_dir = os.path.join(data_dir, 'ADEChallengeData2016')
-    if not os.path.exists(data_dir):
-        torchvision.datasets.utils.download_and_extract_archive(url=ADE20K_URL,
+
+    torchvision.datasets.utils.download_and_extract_archive(url=ADE20K_URL,
                                                                 download_root=data_dir,
                                                                 filename=ADE20K_FILE,
                                                                 remove_finished=True)
