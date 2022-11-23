@@ -1,11 +1,9 @@
 # the run name is a unique identifier for the run
 # this will also be used as the default name for tensorboard, checkpoint directories, etc
 run_name: log-console-test
-gpu_type: None
-gpu_num: 0
-cpu_num: 1
+gpu_type: a100_40gb
+gpu_num: 1
 platform: r7z2
-
 image: mosaicml/pytorch:latest
 integrations:
   - integration_type: "git_repo"
