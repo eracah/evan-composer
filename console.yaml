@@ -12,4 +12,4 @@ integrations:
     pip_install: .[all]
 
 command: |
-  composer evan-composer/console_log_manual_test.py --progress-bar
+  composer evan-composer/console_log_manual_test.py --log-to-console --console-log-interval 2ep --eval
