@@ -15,7 +15,7 @@ def mock_bucket_name():
 
 
 @pytest.fixture
-def test_oci_obj_store(mock_bucket_name, monkeypatch):
+def mock_oci_obj_store(mock_bucket_name, monkeypatch):
     oci = pytest.importorskip('oci')
 
     # Mock all the oci functions.
@@ -34,9 +34,9 @@ def test_oci_obj_store(mock_bucket_name, monkeypatch):
     return oci_os
 
 
-def test_upload_object(test_oci_obj_store, monkeypatch, tmp_path, mock_bucket_name):
+def test_upload_object(mock_oci_obj_store, monkeypatch, tmp_path, mock_bucket_name):
     pytest.importorskip('oci')
-    oci_os = test_oci_obj_store
+    oci_os = mock_oci_obj_store
     mock_object_name = 'my_object'
 
     mock_upload_file = MagicMock()
@@ -52,9 +52,9 @@ def test_upload_object(test_oci_obj_store, monkeypatch, tmp_path, mock_bucket_na
                                              file_path=file_to_upload)
 
 
-def test_download_object(test_oci_obj_store, monkeypatch, tmp_path, mock_bucket_name):
+def test_download_object(mock_oci_obj_store, monkeypatch, tmp_path, mock_bucket_name):
     pytest.importorskip('oci')
-    oci_os = test_oci_obj_store
+    oci_os = mock_oci_obj_store
     mock_object_name = 'my_object'
     mock_response_object = MagicMock()
     file_content = bytes(range(4))
@@ -73,9 +73,9 @@ def test_download_object(test_oci_obj_store, monkeypatch, tmp_path, mock_bucket_
     assert actual_content == file_content
 
 
-def test_get_object_size(test_oci_obj_store, monkeypatch):
+def test_get_object_size(mock_oci_obj_store, monkeypatch):
     pytest.importorskip('oci')
-    oci_os = test_oci_obj_store
+    oci_os = mock_oci_obj_store
     mock_object_name = 'my_object'
     mock_object_size = 11
 
