@@ -287,6 +287,7 @@ class RemoteUploaderDownloader(LoggerDestination):
         self._workers: List[Union[SpawnProcess, threading.Thread]] = []
         # the object store instance for the main thread. Deferring the construction of the object_store to first use.
         self._remote_backend = None
+        self.logger: Optional[Logger] = None
 
     @property
     def remote_backend(self) -> ObjectStore:
@@ -296,7 +297,7 @@ class RemoteUploaderDownloader(LoggerDestination):
         return self._remote_backend
 
     def init(self, state: State, logger: Logger) -> None:
-        del logger  # unused
+        self.logger = logger
         if self._worker_flag is not None:
             raise RuntimeError('The RemoteUploaderDownloader is already initialized.')
         self._worker_flag = self._finished_cls()
@@ -433,7 +434,10 @@ class RemoteUploaderDownloader(LoggerDestination):
                  progress_bar=progress_bar)
 
     def fit_end(self, state: State, logger: Logger):
+        t0 = time.time()
         self.wait_for_workers()
+        t1 = time.time()
+        logger.log_metrics({'ckpt_save_wait_time': t1-t0})
 
     def eval_end(self, state: State, logger: Logger):
         self.wait_for_workers()
