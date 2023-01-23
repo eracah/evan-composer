@@ -16,7 +16,7 @@ from composer.core import Callback, Event, State, Time, TimeUnit
 from composer.loggers import Logger
 from composer.utils import (FORMAT_NAME_WITH_DIST_AND_TIME_TABLE, FORMAT_NAME_WITH_DIST_TABLE, PartialFilePath,
                             checkpoint, create_symlink_file, dist, ensure_folder_has_no_conflicting_files,
-                            format_name_with_dist, is_model_deepspeed, reproducibility)
+                            format_name_with_dist, is_model_deepspeed, reproducibility, maybe_create_object_store_from_uri)
 
 log = logging.getLogger(__name__)
 
@@ -289,6 +289,7 @@ class CheckpointSaver(Callback):  # noqa: D101
         num_checkpoints_to_keep: int = -1,
         weights_only: bool = False,
     ):
+        self.object_store = maybe_create_object_store_from_uri(folder)
         folder = str(folder)
         filename = str(filename)
         remote_file_name = str(remote_file_name) if remote_file_name is not None else None
@@ -385,7 +386,9 @@ class CheckpointSaver(Callback):  # noqa: D101
                 is_deepspeed,
             ).lstrip('/')
 
-            logger.upload_file(remote_file_name=remote_file_name, file_path=filename, overwrite=self.overwrite)
+            if self.object_store is not None:
+                self.object_store.upload_object(object_name=remote_file_name, filename=saved_path)
+            #logger.upload_file(remote_file_name=remote_file_name, file_path=filename, overwrite=self.overwrite)
 
             if self.latest_remote_file_name is not None:
                 symlink_name = self.latest_remote_file_name.format(
@@ -397,11 +400,13 @@ class CheckpointSaver(Callback):  # noqa: D101
                 with tempfile.TemporaryDirectory() as tmpdir:
                     symlink_filename = os.path.join(tmpdir, 'latest.symlink')
                     create_symlink_file(remote_file_name, symlink_filename)
-                    logger.upload_file(
-                        remote_file_name=symlink_name,
-                        file_path=symlink_filename,
-                        overwrite=True,
-                    )
+                    if self.object_store is not None:
+                        self.object_store.upload_object(object_name=symlink_name, filename=symlink_filename)
+                    # logger.upload_file(
+                    #     remote_file_name=symlink_name,
+                    #     file_path=symlink_filename,
+                    #     overwrite=True,
+                    # )
 
         self.saved_checkpoints.append(filename)
 

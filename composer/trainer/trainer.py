@@ -1158,7 +1158,7 @@ class Trainer:
                     latest_remote_file_name = None
 
             self._checkpoint_saver = CheckpointSaver(
-                folder=folder,
+                folder=save_folder,
                 filename=save_filename,
                 remote_file_name=remote_file_name,
                 latest_filename=save_latest_filename,
