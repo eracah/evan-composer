@@ -89,12 +89,11 @@ def ddp_sync_context(state: State, is_final_microbatch: bool, sync_strategy: Uni
                 yield
         finally:
             if is_final_microbatch:
-                for optimizer in state.optimizers:
-                    for group in optimizer.param_groups:
-                        for p in group['params']:
-                            if p.grad is not None:
-                                dist.all_reduce(p.grad)
-                                p.grad = p.grad / dist.get_world_size()
+                for group in state.optimizer.param_groups:
+                    for p in group['params']:
+                        if p.grad is not None:
+                            dist.all_reduce(p.grad)
+                            p.grad = p.grad / dist.get_world_size()
 
     else:
         raise ValueError('Unknown sync strategy', sync_strategy)
@@ -136,14 +135,13 @@ def get_torch_dtype(dtype: Union[Precision, str]):
         raise ValueError(f'Not sure how to convert dtype={dtype} to a torch dtype.')
 
 
-def prepare_fsdp_module(model: torch.nn.Module, optimizers: Optional[Union[torch.optim.Optimizer,
-                                                                           Sequence[torch.optim.Optimizer]]],
+def prepare_fsdp_module(model: torch.nn.Module, optimizer: torch.optim.Optimizer,
                         fsdp_config: Dict[str, Any], precision: Precision) -> None:
     """Prepare a module (assumed ComposerModel) and optimizer for use with :class:`torch.distributed.fsdp.FullyShardedDataParallel`.
 
     Args:
         model (torch.nn.Module): The model to wrap.
-        optimizers (torch.optim.Optimizer | Sequence[torch.optim.Optimizer], optional): The optimizer for `model`, assumed to have a single param group := model.parameters().
+        optimizer (torch.optim.Optimizer | Sequence[torch.optim.Optimizer], optional): The optimizer for `model`, assumed to have a single param group := model.parameters().
         fsdp_config (Dict[str, Any]): The FSDP config.
         precision: (Precision): The precision being used by the Trainer, used to fill in defaults for FSDP `mixed_precision` settings.
     """
@@ -155,16 +153,11 @@ def prepare_fsdp_module(model: torch.nn.Module, optimizers: Optional[Union[torch
                                         ShardingStrategy)
     from torch.distributed.fsdp.flatten_params_wrapper import FlattenParamsWrapper
 
-    if optimizers:
-        optimizers_tuple = ensure_tuple(optimizers)
-        if len(optimizers_tuple) != 1:
-            raise NotImplementedError(f'Only one optimizer is supported; found {len(optimizers_tuple)} optimizers')
-
+    if optimizer is not None:
         # clearing optimizer param groups and state
         # that will be recreated at the end of prepare_fsdp_module
-        optim = optimizers_tuple[0]
-        optim.param_groups.clear()
-        optim.state.clear()
+        optimizer.param_groups.clear()
+        optimizer.state.clear()
 
     sharding_map = {
         'NO_SHARD': ShardingStrategy.NO_SHARD,
@@ -387,8 +380,6 @@ def prepare_fsdp_module(model: torch.nn.Module, optimizers: Optional[Union[torch
         print(f'FSDP: Using limit_all_gathers={limit_all_gathers}')
 
     # Rebuild optimizer now that parameters are sharded
-    if optimizers:
-        optimizers_tuple = ensure_tuple(optimizers)
-        optim = optimizers_tuple[0]
-        optim.param_groups.clear()
-        optim.add_param_group({'params': list(model.parameters())})
+    if optimizer is not None:
+        optimizer.param_groups.clear()
+        optimizer.add_param_group({'params': list(model.parameters())})

@@ -495,6 +495,12 @@ class Trainer:
             If ``None``, will be set to ``DecoupledSGDW(model.parameters(), lr=0.1)``. (default: ``None``)
 
             .. seealso:: :mod:`composer.optim` for the different optimizers built into Composer.
+            .. deprecated:: 0.13
+                please use optimizer.
+        optimizer (torch.optim.Optimizer, optional): The optimizer.
+            If ``None``, will be set to ``DecoupledSGDW(model.parameters(), lr=0.1)``. (default: ``None``)
+
+            .. seealso:: :mod:`composer.optim` for the different optimizers built into Composer.
         schedulers (PyTorchScheduler | ComposerScheduler | Sequence[PyTorchScheduler | ComposerScheduler], optional):
             The learning rate schedulers. If ``[]`` or ``None``, the learning rate will be constant.
             (default: ``None``).
@@ -864,6 +870,7 @@ class Trainer:
 
         # Optimizers and Scheduling
         optimizers: Optional[torch.optim.Optimizer] = None,
+        optimizer: Optional[torch.optim.Optimizer] = None,
         schedulers: Optional[Union[ComposerScheduler, PyTorchScheduler, Sequence[Union[ComposerScheduler,
                                                                                        PyTorchScheduler]]]] = None,
         scale_schedule_ratio: float = 1.0,
@@ -931,6 +938,14 @@ class Trainer:
         python_log_level: Optional[str] = None,
     ):
 
+        if optimizers is not None:
+            DeprecationWarning('The `optimizers` argument is deprecated. Please use `optimizer` instead.')
+            if optimizer is not None:
+                if optimizer != optimizers:
+                    raise ValueError(f'`optimizer` and `optimizers` were both set and to different values. Using optimizer={optimizer} and not {optimizers}')
+            else:
+                optimizer = ensure_tuple(optimizers)[0]
+
         self.auto_log_hparams = auto_log_hparams
         self.python_log_level = python_log_level
         if self.python_log_level is not None:
@@ -971,7 +986,7 @@ class Trainer:
 
         # Handle FSDP sharding
         if self.fsdp_config is not None:
-            prepare_fsdp_module(model, optimizers, self.fsdp_config, precision)
+            prepare_fsdp_module(model, optimizer, self.fsdp_config, precision)
 
         # Reproducibility
         rank_zero_seed, seed = _distribute_and_get_random_seed(seed, device)
@@ -982,17 +997,11 @@ class Trainer:
             reproducibility.configure_deterministic_mode()
 
         # Optimizers and Schedulers
-        if not optimizers:
-            optimizers = DecoupledSGDW(model.parameters(), lr=0.1)
-            # hard-coding the optimizer in the warning, as repr(optimizers) would print an annoying, multi-line warning
+        if optimizer is None:
+            optimizer = DecoupledSGDW(model.parameters(), lr=0.1)
+            # hard-coding the optimizer in the warning, as repr(optimizer) would print an annoying, multi-line warning
             warnings.warn(('No optimizer was specified. Defaulting to '
-                           f"{type(optimizers).__name__}(lr={optimizers.defaults['lr']})"))
-
-        num_optimizers = len(ensure_tuple(optimizers))
-        if num_optimizers != 1:
-            raise NotImplementedError(f'Only one optimizer is supported; found {num_optimizers} optimizers')
-
-        # Move the model and optimizers to the device
+                           f"{type(optimizer).__name__}(lr={optimizer.defaults['lr']})"))
 
         if not (self.deepspeed_enabled or self.fsdp_enabled):
             # check if model is already on tpu
@@ -1004,7 +1013,7 @@ class Trainer:
                 # Move any remaining optimizer parameters onto the device
                 # It is possible that optimizer initialize created some internal tensors on CPU
                 # that need to be moved onto GPU.
-            optimizers = map_collection(optimizers, device.optimizer_to_device)
+            optimizer = device.optimizer_to_device(optimizer)
 
         # Microbatching
         # To support backwards compatability, we currently support both device_train_microbatch_size

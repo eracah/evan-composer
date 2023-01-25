@@ -87,7 +87,7 @@ _STATE_DICT_SERIALIZED_ATTRIBUTES = [
     # List of attributes that are serialized with state_dict
     # Only the attributes listed in state.serialized_attributes will actually be saved.
     'model',
-    'optimizers',
+    'optimizer',
     'schedulers',
     'algorithms',
     'callbacks',
@@ -141,6 +141,10 @@ class State(Serializable):
             the supported precisions.
         optimizers (torch.optim.Optimizer | Sequence[torch.optim.Optimizer], optional): The optimizer being used to
             train the model. Multiple optimizers are not currently supported.
+            .. deprecated:: 0.13
+                please use optimizer.
+        optimizer (torch.optim.Optimizer, optional): The optimizer being used to
+            train the model.
         schedulers (types.PyTorchScheduler | Sequence[types.PyTorchScheduler], optional):
             The learning rate scheduler (can also be a list or tuple of schedulers).
         scaler (torch.cuda.amp.GradScaler, optional): The gradient scaler in use for mixed precision training.
@@ -239,7 +243,7 @@ class State(Serializable):
             +=======================+=============================================================+
             | model                 | The model under training.                                   |
             +-----------------------+-------------------------------------------------------------+
-            | optimizers            | The optimizers being used to train the model.               |
+            | optimizer            | The optimizer being used to train the model.               |
             +-----------------------+-------------------------------------------------------------+
             | schedulers            | The learning rate schedulers.                               |
             +-----------------------+-------------------------------------------------------------+
@@ -306,6 +310,7 @@ class State(Serializable):
 
         # optimizers
         optimizers: Optional[Union[Optimizer, Sequence[Optimizer]]] = None,
+        optimizer: Optimizer = None,
 
         # scaler
         scaler: Optional[torch.cuda.amp.grad_scaler.GradScaler] = None,
@@ -344,10 +349,18 @@ class State(Serializable):
         self.predict_timestamp = Timestamp()
         self._precision = Precision(precision)
 
-        if optimizers is None:
-            self._optimizers = []
+        if optimizers is not None:
+            DeprecationWarning('The `optimizers` argument is deprecated. Please use `optimizer` instead.')
+            if optimizer is not None:
+                if optimizer != optimizers:
+                    raise ValueError(f'`optimizer` and `optimizers` were both set and to different values. Using optimizer={optimizer} and not {optimizers}')
+            else:
+                optimizer = ensure_tuple(optimizers)[0]
+
+        if optimizer is None:
+            self._optimizer = None
         else:
-            self._optimizers = list(ensure_tuple(optimizers))
+            self._optimizer = optimizer
 
         self._schedulers = []
 
@@ -368,11 +381,11 @@ class State(Serializable):
         # These attributes will be serialized using .state_dict(), and loaded with .load_state_dict()
         # All other attributes will not be serialized.
         # For simplicity, omit the leading underscore for private attributes.
-        # For example, even though the optimizers are stored on the state
-        # as the "_optimizers" attribute, here we specify just "optimizers"
+        # For example, even though the optimizer are stored on the state
+        # as the "_optimizer" attribute, here we specify just "optimizer"
         self.serialized_attributes = [
             'model',
-            'optimizers',
+            'optimizer',
             'schedulers',
             'algorithms',
             'callbacks',
@@ -497,11 +510,25 @@ class State(Serializable):
     @property
     def optimizers(self):
         """The optimizers."""
-        return self._optimizers
+        DeprecationWarning('The optimizers member of State is deprecated in favor optimizer')
+        return self._optimizer
 
     @optimizers.setter
     def optimizers(self, optimizers: Union[Optimizer, Sequence[Optimizer]]):
-        self._optimizers[:] = ensure_tuple(optimizers)
+        DeprecationWarning('The optimizers member of State is deprecated in favor optimizer')
+        optimizers = ensure_tuple(optimizers)
+        if len(optimizers) > 1:
+            raise ValueError("You cannot set more than one optimizer!")
+        self._optimizer = optimizers[0]
+
+    @property
+    def optimizer(self):
+        """The optimizer."""
+        return self._optimizer
+
+    @optimizer.setter
+    def optimizer(self, optimizer: Optimizer):
+        self._optimizer = optimizer
 
     @property
     def schedulers(self):
@@ -678,7 +705,7 @@ class State(Serializable):
                 if self.is_model_ddp:
                     torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(model_state, 'module.')
                 serialized_value = model_state
-            elif attribute_name == 'optimizers':
+            elif attribute_name == 'optimizer':
                 if self.fsdp_enabled:
                     serialized_value = {}
                     for obj in ensure_tuple(attribute_value):
@@ -853,18 +880,16 @@ class State(Serializable):
         Args:
             state_dict (Dict[str, Any]): The state to load.
         """
-        serialized_value = state_dict['optimizers']
-        for target in ensure_tuple(self.optimizers):
-            if type(target).__qualname__ not in serialized_value:
-                warnings.warn(f'{type(target).__qualname__} is not in the state_dict. Its state will not be restored.',
-                              category=UserWarning)
-                continue
-            source = serialized_value[type(target).__qualname__]
-            if self.fsdp_enabled:
-                sharded_osd = get_fsdp_sharded_optim_state_dict(full_optim_state_dict=source, model=self.model)
-                target.load_state_dict(sharded_osd)
-            else:
-                target.load_state_dict(source)
+        optim_state_dict = state_dict['optimizer']
+        if type(self.optimizer).__qualname__ not in optim_state_dict:
+            warnings.warn(f'{type(self.optimizer).__qualname__} is not in the state_dict. Its state will not be restored.',
+                            category=UserWarning)
+        optim_state = optim_state_dict[type(self.optimizer).__qualname__]
+        if self.fsdp_enabled:
+            sharded_osd = get_fsdp_sharded_optim_state_dict(full_optim_state_dict=optim_state, model=self.model)
+            self.optimizer.load_state_dict(sharded_osd)
+        else:
+            self.optimizer.load_state_dict(optim_state)
 
     def _load_dataset_state(self, obj: Dict[str, Any]) -> None:
         """Load the dataset state.
@@ -942,7 +967,7 @@ class State(Serializable):
 
             if attribute_name == 'dataset_state':
                 self._load_dataset_state(serialized_value)
-            elif attribute_name == 'optimizers':
+            elif attribute_name == 'optimizer':
                 self.load_optim_state(state)
             elif attribute_name == 'train_metrics':
                 state_field_value = getattr(self, attribute_name)
