@@ -345,15 +345,15 @@ class State(Serializable):
         self._precision = Precision(precision)
 
         if optimizers is None:
-            self._optimizers = []
+            self.optimizers = []
         else:
-            self._optimizers = list(ensure_tuple(optimizers))
+            self.optimizers = list(ensure_tuple(optimizers))
 
-        self._schedulers = []
+        self.schedulers = []
 
         self.scaler = scaler
-        self._algorithms = list(ensure_tuple(algorithms))
-        self._callbacks = list(ensure_tuple(callbacks))
+        self.algorithms = list(ensure_tuple(algorithms))
+        self.callbacks = list(ensure_tuple(callbacks))
 
         self.profiler: Optional[Profiler] = None
 
@@ -494,24 +494,6 @@ class State(Serializable):
         """
         self.max_duration = self.timestamp.batch
 
-    @property
-    def optimizers(self):
-        """The optimizers."""
-        return self._optimizers
-
-    @optimizers.setter
-    def optimizers(self, optimizers: Union[Optimizer, Sequence[Optimizer]]):
-        self._optimizers[:] = ensure_tuple(optimizers)
-
-    @property
-    def schedulers(self):
-        """The schedulers."""
-        return self._schedulers
-
-    @schedulers.setter
-    def schedulers(self, schedulers: Union[types.PyTorchScheduler, Sequence[types.PyTorchScheduler]]):
-        self._schedulers[:] = ensure_tuple(schedulers)
-
     def batch_get_item(self, key: Union[str, int, Callable, Any]) -> Any:
         """Gets element from batch either specified by key or user-specified function.
 
@@ -550,24 +532,6 @@ class State(Serializable):
             batch (Any): The updated batch with value set at key.
         """
         self.batch = batch_set(self.batch, key=key, value=value)
-
-    @property
-    def callbacks(self):
-        """The callbacks."""
-        return self._callbacks
-
-    @callbacks.setter
-    def callbacks(self, callbacks: Sequence[Callback]):
-        self._callbacks[:] = callbacks
-
-    @property
-    def algorithms(self):
-        """The algorithms."""
-        return self._algorithms
-
-    @algorithms.setter
-    def algorithms(self, algorithms: Sequence[Algorithm]):
-        self._algorithms[:] = algorithms
 
     @property
     def evaluators(self):
@@ -973,24 +937,6 @@ class State(Serializable):
                     # ignore AttributeError for properties that have getters but not setters.
                     pass
 
-    @property
-    def dataloader(self):
-        """The active dataloader."""
-        return self._dataloader
-
-    @property
-    def dataloader_label(self):
-        """The dataloader label for the active dataloader.
-
-        By default, the training dataloader is called ``'train'``. The evaluator dataloader
-        is called ``'eval'``, or when multiple evaluators are used, the name of the evaluator.
-        However, the dataloader label can be explicitly specified in :meth:`.Trainer.fit`
-        and :meth:`.Trainer.eval`.
-
-        Returns:
-            Optional[str]: The dataloader label, or None if no dataloader is set.
-        """
-        return self._dataloader_label
 
     def set_dataloader(
         self,
