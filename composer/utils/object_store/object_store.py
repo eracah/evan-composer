@@ -137,6 +137,21 @@ class ObjectStore(abc.ABC):
         del object_name, filename, overwrite, callback  # unused
         raise NotImplementedError(f'{type(self).__name__}.download_object is not implemented')
 
+    def delete_object(
+        self,
+        object_name: str,
+    ) -> None:
+        """Deletes object from object store.
+
+        Args:
+            object_name (str): The name of the object to delete.
+
+        Raises:
+            FileNotFoundError: If the file was not found in the object store.
+            ObjectStoreTransientError: If there was a transient connection issue with downloading the object.
+        """
+
+
     def close(self):
         """Close the object store."""
         pass
