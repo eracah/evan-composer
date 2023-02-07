@@ -71,6 +71,10 @@ class WandBLogger(LoggerDestination):
                                                 conda_channel='conda-forge') from e
 
         del wandb  # unused
+        if log_artifacts:
+            warnings.warn(DeprecationWarning(
+                'Logging artifacts through the WandBLogger is not supported. Please use the WandBObjectStore or a wandb uri, like so: wandb://my_path'))
+
         if log_artifacts and rank_zero_only and dist.get_world_size() > 1:
             warnings.warn(
                 ('When logging artifacts, `rank_zero_only` should be set to False. '
