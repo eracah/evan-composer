@@ -162,6 +162,16 @@ class TestObjectStore:
         with pytest.raises(FileNotFoundError):
             object_store.download_object('not_found_object', filename='not used')
 
+    def test_delete_object(
+        self,
+        object_store: ObjectStore,
+        dummy_obj: pathlib.Path,
+        tmp_path: pathlib.Path,
+        overwrite: bool,
+        remote: bool,
+    ):
+        
+
 
 @pytest.mark.filterwarnings(r'ignore:setDaemon\(\) is deprecated:DeprecationWarning')
 def test_filenames_as_environs(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):

@@ -173,3 +173,13 @@ class S3ObjectStore(ObjectStore):
                 os.replace(tmp_path, filename)
             else:
                 os.rename(tmp_path, filename)
+    
+    def delete_object(
+        self,
+        object_name: str,
+    ) -> None:
+
+        self.client.delete_object(
+            Bucket=self.bucket,
+            Key=self.get_key(object_name),
+        )
