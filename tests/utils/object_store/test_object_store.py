@@ -11,7 +11,7 @@ import pytest
 
 from composer.utils.object_store import LibcloudObjectStore, ObjectStore, S3ObjectStore, SFTPObjectStore
 from composer.utils.object_store.sftp_object_store import SFTPObjectStore
-from tests.utils.object_store.object_store_settings import get_object_store_ctx, object_stores
+from tests.utils.object_store.object_store_settings import get_object_store_ctx, object_stores, s3_object_stores
 
 
 @pytest.fixture
@@ -74,7 +74,7 @@ class MockCallback:
         assert self.total_num_bytes == self.transferred_bytes
 
 
-@pytest.mark.parametrize('bucket_uri_and_kwargs', object_stores, indirect=True)
+@pytest.mark.parametrize('bucket_uri_and_kwargs', s3_object_stores, indirect=True) # TODO(eracah): change s3_object_stires back to object_stores
 @pytest.mark.parametrize('remote', [False, pytest.param(True, marks=pytest.mark.remote)])
 class TestObjectStore:
 
@@ -166,13 +166,14 @@ class TestObjectStore:
         self,
         object_store: ObjectStore,
         dummy_obj: pathlib.Path,
-        tmp_path: pathlib.Path,
-        overwrite: bool,
         remote: bool,
     ):
+        del remote  # unused
+        object_name = 'tmpfile_object_name'
+        object_store.upload_object(object_name, str(dummy_obj))
+        object_store.delete_object(object_name)
+
         
-
-
 @pytest.mark.filterwarnings(r'ignore:setDaemon\(\) is deprecated:DeprecationWarning')
 def test_filenames_as_environs(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path):
 

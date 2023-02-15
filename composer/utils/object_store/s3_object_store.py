@@ -183,3 +183,12 @@ class S3ObjectStore(ObjectStore):
             Bucket=self.bucket,
             Key=self.get_key(object_name),
         )
+
+    def get_object(self,
+                   object_name: str,
+                   ):
+        try:
+            self.client.get_object(Bucket=self.bucket, Key=self.get_key(object_name))
+        except Exception as e:
+            _ensure_not_found_errors_are_wrapped(self.get_uri(object_name), e)
+

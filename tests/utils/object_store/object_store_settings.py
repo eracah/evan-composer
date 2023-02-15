@@ -59,6 +59,13 @@ object_stores = [
     if not issubclass(x, OCIObjectStore)
 ]
 
+s3_object_stores = [
+    pytest.param(x, marks=_object_store_marks[x], id=x.__name__)
+    for x in get_module_subclasses(composer.utils.object_store, ObjectStore)
+    # Note: OCI has its own test suite, so it is exempt from being included in this one.``
+    if issubclass(x, S3ObjectStore)
+]
+
 
 @contextlib.contextmanager
 def get_object_store_ctx(object_store_cls: Type[ObjectStore],

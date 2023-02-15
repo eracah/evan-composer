@@ -10,7 +10,7 @@ import os
 import pathlib
 import tempfile
 import textwrap
-from typing import Callable, List, Optional, Union
+from typing import Callable, List, Optional, Union, Dict
 
 from composer.core import Callback, Event, State, Time, TimeUnit
 from composer.loggers import Logger
@@ -310,6 +310,8 @@ class CheckpointSaver(Callback):  # noqa: D101
 
         self.overwrite = overwrite
         self.saved_checkpoints: List[str] = []
+        self.saved_remote_checkpoints: List[str] = []
+        self.symlink_name_to_remote_name_to_map: Dict[str, str] = {}
         self.num_checkpoints_to_keep = num_checkpoints_to_keep
         self.weights_only = weights_only
 
@@ -386,6 +388,7 @@ class CheckpointSaver(Callback):  # noqa: D101
             ).lstrip('/')
 
             logger.upload_file(remote_file_name=remote_file_name, file_path=filename, overwrite=self.overwrite)
+            self.saved_remote_checkpoints.append(remote_file_name)
 
             if self.latest_remote_file_name is not None:
                 symlink_name = self.latest_remote_file_name.format(
@@ -402,13 +405,31 @@ class CheckpointSaver(Callback):  # noqa: D101
                         file_path=symlink_filename,
                         overwrite=True,
                     )
+                # We keep a map of symlink_name -> remote_file_name (and not the other way around)
+                # because what symlink name points to will change over time.
+                self.symlink_name_to_remote_name_to_map[symlink_filename] = remote_file_name
 
         self.saved_checkpoints.append(filename)
 
         if self.num_checkpoints_to_keep >= 0:
-            self._rotate_checkpoints()
+            self._rotate_checkpoints(logger)
 
-    def _rotate_checkpoints(self):
+    def _rotate_checkpoints(self, logger: Logger):
         while len(self.saved_checkpoints) > self.num_checkpoints_to_keep:
             checkpoint = self.saved_checkpoints.pop(0)
             os.remove(checkpoint)
+
+
+        remote_name_to_symlink_name_map = {v: k for k,v in 
+                                           self.symlink_name_to_remote_name_to_map.items()}
+        while len(self.saved_remote_checkpoints) > self.num_checkpoints_to_keep:
+            remote_checkpoint_name_to_delete = self.saved_remote_checkpoints.pop(0)
+            logger.delete_file(remote_checkpoint_name_to_delete)
+            
+            # We keep a symlink_name -> remote_file_name map for good reason (because
+            # which remote_file it points to changes), but we do need the reverse
+            # in order to see if there is a symlink that points to file that was just deleted.
+            remote_checkpoint_symlink_to_delete = remote_name_to_symlink_name_map.pop(remote_checkpoint_name_to_delete, None)
+            if remote_checkpoint_symlink_to_delete is not None:
+                logger.delete_file(remote_checkpoint_symlink_to_delete)
+            
