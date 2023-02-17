@@ -301,7 +301,7 @@ class RemoteUploaderDownloader(LoggerDestination):
             raise RuntimeError('The RemoteUploaderDownloader is already initialized.')
         self._worker_flag = self._finished_cls()
         self._run_name = state.run_name
-        file_name_to_test = self._remote_file_name('.credentials_validated_successfully')
+        file_name_to_test = self._remote_file_name(f'.credentials_validated_successfully_{str(uuid.uuid4())}')
 
         # Create the enqueue thread
         self._enqueue_thread_flag = self._finished_cls()
