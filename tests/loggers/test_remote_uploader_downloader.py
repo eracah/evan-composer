@@ -59,6 +59,12 @@ class DummyObjectStore(ObjectStore):
     def get_object_size(self, object_name: str) -> int:
         size = os.stat(self._get_abs_path(object_name)).st_size
         return size
+    
+    def delete_object(self, object_name: str,) -> None:
+        shutil.rmtree(self._get_abs_path(object_name))
+
+    def object_exists(self, object_name: str) -> None:
+        return os.path.exists(self._get_abs_path(object_name))
 
 
 def object_store_test_helper(
@@ -99,6 +105,18 @@ def object_store_test_helper(
             file_path_2 = os.path.join(tmp_path, f'file_2')
             with open(file_path_2, 'w+') as f:
                 f.write('2')
+
+            # Check if deletes object
+            remote_file_name_2 = 'remote_file_name2'
+            file_path_3 = os.path.join(tmp_path, f'file_3')
+            with open(file_path_3, 'w+') as f:
+                f.write('3')
+            logger.upload_file(remote_file_name_2, file_path_3, overwrite=overwrite)
+            time.sleep(3)
+            logger.delete_file(remote_file_name_2)
+            remote_ud = logger.destinations[0]
+            assert isinstance(remote_ud, RemoteUploaderDownloader)
+            assert not remote_ud.remote_backend.object_exists(remote_file_name_2)
 
             post_close_ctx = contextlib.nullcontext()
 

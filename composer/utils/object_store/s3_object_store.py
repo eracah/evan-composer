@@ -184,11 +184,13 @@ class S3ObjectStore(ObjectStore):
             Key=self.get_key(object_name),
         )
 
-    def get_object(self,
+    def object_exists(self,
                    object_name: str,
-                   ):
+                   ) -> bool:
         try:
             self.client.get_object(Bucket=self.bucket, Key=self.get_key(object_name))
-        except Exception as e:
-            _ensure_not_found_errors_are_wrapped(self.get_uri(object_name), e)
+            return True
+        except Exception:
+            return False
+            #_ensure_not_found_errors_are_wrapped(self.get_uri(object_name), e)
 

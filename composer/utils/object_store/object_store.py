@@ -153,6 +153,20 @@ class ObjectStore(abc.ABC):
         del object_name
         raise NotImplementedError(f'{type(self).__name__}.delete_object is not implemented')
 
+    def object_exists(self,
+                object_name: str,
+                ) -> bool:
+        """ Determines whether the object exists in the object store or not.
+
+        Args:
+            object_name (str): The name of the object to check existence of.
+
+        Returns:
+            bool: True if object exisst false otherwise.
+        """
+        del object_name
+        raise NotImplementedError(f'{type(self).__name__}.object_exists is not implemented')
+       
     def close(self):
         """Close the object store."""
         pass

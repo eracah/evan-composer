@@ -150,6 +150,18 @@ class LoggerDestination(Callback, ABC):
         del state, remote_file_name, file_path, overwrite  # unused
         pass
 
+    def delete_file(
+        self,
+        remote_file_name: str,
+    ):
+        """Delete file from logger destination.
+
+        Args:
+            remote_file_name (str): The name of the file.
+        """
+        del remote_file_name
+        pass
+
     def download_file(
         self,
         remote_file_name: str,

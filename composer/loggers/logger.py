@@ -130,6 +130,18 @@ class Logger:
                 overwrite=overwrite,
             )
 
+    def delete_file(self, remote_file_name: str):
+        """Deletes the file from any logger destinations that have it.
+
+        Args:
+            remote_file_name (str):  A format string for the name of the file.
+        """
+        for destination in self.destinations:
+            destination.delete_file(
+                remote_file_name=format_name_with_dist(format_str=remote_file_name, run_name=self._state.run_name),
+            )
+
+
     def has_file_upload_destination(self) -> bool:
         """Determines if the logger has a destination which supports uploading files.
 

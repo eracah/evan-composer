@@ -538,8 +538,7 @@ class RemoteUploaderDownloader(LoggerDestination):
     
     def delete_file(self, remote_file_name: str):
         formatted_remote_file_name = self._remote_file_name(remote_file_name)
-        remote_backend = _build_remote_backend(self.remote_backend_name, self.backend_kwargs)
-        remote_backend.delete_object(formatted_remote_file_name)
+        self.remote_backend.delete_object(formatted_remote_file_name)
 
 
 def _validate_credentials(
