@@ -104,6 +104,3 @@ class OCIObjectStore(ObjectStore):
             os.replace(tmp_path, filename)
         else:
             os.rename(tmp_path, filename)
-
-    def delete_object(self, object_name: str) -> None:
-        return super().delete_object(object_name)

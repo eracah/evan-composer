@@ -420,15 +420,16 @@ class CheckpointSaver(Callback):  # noqa: D101
             os.remove(checkpoint)
 
 
+        # We keep a symlink_name -> remote_file_name map for good reason (because
+        # which remote_file it points to changes), but we do need the reverse
+        # in order to see if there is a symlink that points to file that was just deleted.
         remote_name_to_symlink_name_map = {v: k for k,v in 
                                            self.symlink_name_to_remote_name_to_map.items()}
         while len(self.saved_remote_checkpoints) > self.num_checkpoints_to_keep:
             remote_checkpoint_name_to_delete = self.saved_remote_checkpoints.pop(0)
             logger.delete_file(remote_checkpoint_name_to_delete)
             
-            # We keep a symlink_name -> remote_file_name map for good reason (because
-            # which remote_file it points to changes), but we do need the reverse
-            # in order to see if there is a symlink that points to file that was just deleted.
+
             remote_checkpoint_symlink_to_delete = remote_name_to_symlink_name_map.pop(remote_checkpoint_name_to_delete, None)
             if remote_checkpoint_symlink_to_delete is not None:
                 logger.delete_file(remote_checkpoint_symlink_to_delete)

@@ -151,7 +151,7 @@ class ObjectStore(abc.ABC):
             ObjectStoreTransientError: If there was a transient connection issue with downloading the object.
         """
         del object_name
-        raise NotImplementedError(f'{type(self).__name__}.download_object is not implemented')
+        raise NotImplementedError(f'{type(self).__name__}.delete_object is not implemented')
 
     def close(self):
         """Close the object store."""
