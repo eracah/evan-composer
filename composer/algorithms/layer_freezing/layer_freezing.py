@@ -71,7 +71,6 @@ def freeze_layers(
     for i, child in enumerate(flat_children[0:-1]):
         if i < freeze_depth:
             for p in child.parameters():
-                _remove_param_from_optimizers(p, optimizers)
                 # Do not compute gradients for this param.
                 p.requires_grad = False
 
@@ -204,20 +203,3 @@ def _get_layers(module: torch.nn.Module, flat_children: List[torch.nn.Module]):
         # Otherwise, continue the search over its children.
         for child in module.children():
             _get_layers(child, flat_children)
-
-
-def _remove_param_from_optimizers(p: torch.nn.Parameter, optimizers: Union[Optimizer, Sequence[Optimizer]]):
-    """Helper function to freeze the training of a parameter.
-
-    To freeze a parameter, it must be removed from the optimizer,
-    otherwise momentum and weight decay may still be applied.
-
-    Args:
-        p (torch.nn.Parameter): The parameter being frozen.
-        optimizers (torch.optim.Optimizer | Sequence[torch.optim.Optimizer]): The optimizers used during training.
-    """
-    # Search over params in the optimizers to find and remove the
-    # given param. Necessary due to the way params are stored.
-    for optimizer in ensure_tuple(optimizers):
-        for group in optimizer.param_groups:
-            group['params'] = list(filter(lambda x: id(x) != id(p), group['params']))

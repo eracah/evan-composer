@@ -31,9 +31,6 @@ def test_algorithm_resumption(
 
     copied_model = copy.deepcopy(model)  # copy the model so the params will start from the same point
 
-    if alg_cls is LayerFreezing:
-        pytest.xfail('Known issues')
-
     if alg_cls in (SAM, StochasticDepth):
         pytest.xfail('Mismatch in weights when resuming from a checkpoint.')
 
