@@ -364,6 +364,7 @@ class CheckpointSaver(Callback):  # noqa: D101
             state=state,
             filename=filename,
             weights_only=self.weights_only,
+            overwrite=self.overwrite,
         )
 
         if not saved_path:  # not all ranks save
@@ -403,7 +404,9 @@ class CheckpointSaver(Callback):  # noqa: D101
                         overwrite=True,
                     )
 
-        self.saved_checkpoints.append(filename)
+        # If checkpoint.save_checkpoint modifies filename, we want the updated path to be
+        # added to saved_checkpoints.
+        self.saved_checkpoints.append(saved_path)
 
         if self.num_checkpoints_to_keep >= 0:
             self._rotate_checkpoints()

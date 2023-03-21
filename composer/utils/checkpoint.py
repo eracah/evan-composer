@@ -13,6 +13,7 @@ import shutil
 import tarfile
 import tempfile
 import textwrap
+from packaging import version
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
@@ -36,7 +37,8 @@ __all__ = ['load_checkpoint', 'save_checkpoint', 'download_checkpoint']
 
 _COMPOSER_STATES_FILENAME = 'composer_states.pt'
 _DEEPSPEED_TAG = 'deepspeed'  # always tag with the same, deterministic name. We'll rename the tarball to the appropriate name.
-
+_TORCH_DISTRIBUTED_CHECKPOINTS_FILENAME = f'__{dist.get_global_rank()}_0.distcp'
+_TORCH_DISTRIBUTED_CHECKPOINTS_METADATA_FILENAME = '.metadata'
 
 def _format_path_with_rank_zero(path: str) -> str:
     """Formats ``path`` with the rank zero values."""
@@ -492,6 +494,7 @@ def save_checkpoint(
     filename: str = 'ep{epoch}-ba{batch}-rank{rank}',
     *,
     weights_only: bool = False,
+    overwrite: bool = False,
 ) -> Union[str, None]:  # noqa: D103
 
     log.debug('Saving checkpoint to %s', filename)
@@ -505,22 +508,25 @@ def save_checkpoint(
     if weights_only and not is_deepspeed:
         state_dict['state'] = {'model': state_dict['state']['model']}
 
-    save_filename = PartialFilePath(filename).format(state, is_deepspeed)
-    dirname = os.path.dirname(save_filename)
-    if dirname:
-        os.makedirs(dirname, exist_ok=True)
+    if state.fsdp_sharded_state_dict_enabled:
+        save_filename = _save_fsdp_sharded_checkpoint(state_dict, filename, state, overwrite)
+    else:
+        save_filename = PartialFilePath(filename).format(state, is_deepspeed)
+        dirname = os.path.dirname(save_filename)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
+        # all ranks save for deepspeed
+        if is_deepspeed:
+            _save_deepspeed_model(state.deepspeed_model, save_filename)
+    
 
-    # only rank 0 saves the state_dict unless state.fsdp_sharded_state_dict_enabled=True.
-    if dist.get_global_rank() == 0 or state.fsdp_sharded_state_dict_enabled:
-        with open(save_filename, 'wb') as f:
-            torch.save(state_dict, f)
+        # only rank 0 saves the state_dict unless state.fsdp_sharded_state_dict_enabled=True.
+        elif dist.get_global_rank() == 0:
+            with open(save_filename, 'wb') as f:
+                torch.save(state_dict, f)
 
-        if is_tar(save_filename):
-            _compress_file(save_filename, basename=_COMPOSER_STATES_FILENAME)
-
-    # all ranks save for deepspeed
-    if is_deepspeed:
-        _save_deepspeed_model(state.deepspeed_model, save_filename)
+            if is_tar(save_filename):
+                _compress_file(save_filename, basename=_COMPOSER_STATES_FILENAME)
 
     dist.barrier()  # ensure all ranks saved their files
 
@@ -531,6 +537,37 @@ def save_checkpoint(
         # no file saved
         return None
 
+def _save_fsdp_sharded_checkpoint(self, state_dict: Dict[str, Any], filename:str, state: State, overwrite: bool):
+    if version.parse(torch.__version__) < version.parse('2.0.0'):
+        raise RuntimeError('To save FSDP sharded checkpoints (fsdp_state_dict_type is either "local" or "sharded") with Composer, you must use torch>=2.0.0.')
+    from torch.distributed import checkpoint
+
+
+    # remove rank from filename because torch.distributed.checkpoint inserts it own rank stuff.
+    filename = filename.replace('rank{rank}', '').replace('{rank}', 'i')
+    save_filename = format_name_with_dist_and_time(
+                        filename,
+                        state.run_name,
+                        state.timestamp
+                        )
+    # Instead of using a filename, torch.distributed.checkpoint want a directory, so turn filename into a directory
+    # because we want the directory to have the same identifying characteristics as the file.
+    save_dir = str(Path(save_filename).parent / Path(save_filename).stem) # Remove .pt suffix.
+    if os.path.exists(save_dir):
+        if len(os.listdir(save_dir)) > 0:
+            if overwrite:
+                os.rmdir(str(save_dir))
+            else:
+                raise RuntimeError(textwrap.dedent(f'For saving FSDP sharded checkpoints (fsdp_state_dict_type is either "local" or "sharded")', 
+                                                f'with Composer, you must use an empty or nonexistent directory, but found {str(save_dir)}',
+                                                'to be existing and nonempty and overwrite to be set to false.'))
+    else:
+        os.makedirs(save_dir, exist_ok=False)
+
+    fsw = checkpoint.FileSystemWriter(save_dir)
+    checkpoint.save_state_dict(state_dict=state_dict, storage_writer=fsw)
+    save_filepath = str(Path(save_dir) / Path(_TORCH_DISTRIBUTED_CHECKPOINTS_FILENAME))
+    return save_filepath
 
 def _compress_file(filename: str, basename: str):
     """Replace a file with its compressed version.

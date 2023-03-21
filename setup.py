@@ -77,8 +77,7 @@ install_requires = [
     'tqdm>=4.62.3,<5',
     'torchmetrics>=0.10.0,<0.11.4',
     'torch_optimizer>=0.3.0,<0.4',
-    'torchvision>=0.11.0,<0.15',
-    'torch>=1.10.0,<1.14',
+    'torch>=2.0',
     'requests>=2.26.0,<3',
     'numpy>=1.21.5,<1.23.0',
     'psutil>=5.8.0,<6',
@@ -185,11 +184,11 @@ extra_deps['mlperf'] = [
     'py-cpuinfo>=8.0.0,<10',
 ]
 
-extra_deps['streaming'] = [
-    'mosaicml-streaming<0.4',
-    'boto3>=1.21.45,<2',
-    'paramiko>=2.11.0,<3',
-]
+# extra_deps['streaming'] = [
+#     'mosaicml-streaming<0.4',
+#     'boto3>=1.21.45,<2',
+#     'paramiko>=2.11.0,<3',
+# ]
 
 extra_deps['libcloud'] = [
     'apache-libcloud>=3.3.1,<4',
