@@ -466,20 +466,7 @@ class State(Serializable):
         # For simplicity, omit the leading underscore for private attributes.
         # For example, even though the optimizers are stored on the state
         # as the "_optimizers" attribute, here we specify just "optimizers"
-        self.serialized_attributes = [
-            'model',
-            'optimizers',
-            'schedulers',
-            'algorithms',
-            'callbacks',
-            'scaler',
-            'timestamp',
-            'rank_zero_seed',
-            'train_metrics',
-            'eval_metrics',
-            'run_name',
-            'dataset_state',
-        ]
+
 
         self.train_metrics: Dict[str, Metric] = {}
         self.eval_metrics: Dict[str, Dict[str, Metric]] = {}
@@ -647,7 +634,7 @@ class State(Serializable):
 
     @callbacks.setter
     def callbacks(self, callbacks: Sequence[Callback]):
-        self._callbacks[:] = callbacks
+        self._callbacks[:] = ensure_tuple(callbacks)
 
     @property
     def algorithms(self):
@@ -656,7 +643,7 @@ class State(Serializable):
 
     @algorithms.setter
     def algorithms(self, algorithms: Sequence[Algorithm]):
-        self._algorithms[:] = algorithms
+        self._algorithms[:] = ensure_tuple(algorithms)
 
     @property
     def evaluators(self):
@@ -751,6 +738,48 @@ class State(Serializable):
 
         return obj
 
+    def _model_state_dict(self) -> Dict[str, Any]:
+        """Collect the state dict(s) of our model(s).
+
+        Returns:
+            Dict[str, Any]: The state dict(s).
+        """
+        # Save model directly instead of by class name, since model may be wrapped by DistributedDataParallel
+        # If it is DDP wrapped, do not save the `module.` prefix, as that is an implementation detail
+        if self.fsdp_enabled and self.fsdp_state_dict_type is not None:
+            with fsdp_state_dict_type_context(self.model, state_dict_type=self.fsdp_state_dict_type):
+                model_state_dict = self.model.state_dict()
+        else:
+            model_state_dict = self.model.state_dict()
+        
+
+        if self.is_model_ddp:
+            torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(model_state_dict, 'module.')
+
+        return model_state_dict
+
+    def _optimizer_state_dict(self) -> Dict[str, Any]:
+        """Collect the state dict(s) of our optimizer(s).
+
+        Returns:
+            Dict[str, Any]: The state dict(s).
+        """
+        if version.parse(torch.__version__) < version.parse('2.0.0'):
+            raise RuntimeError('To use FSDP with Composer, you must use torch>=1.13.0.')
+        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+        optimizer = ensure_tuple(self.optimizers)[0]
+        optimizer_name = type(optimizer).__qualname__
+
+        if self.fsdp_enabled and self.fsdp_state_dict_type is not None:
+            optim_state_dict = FSDP.optim_state_dict(self.model, optimizer)
+        else:
+            optim_state_dict = optimizer.state_dict()
+
+        return {optimizer_name: optim_state_dict}
+
+    def _create_state_dict_for_attribute(self, obj) -> Dict[str, Any]:
+        return {type(obj).__qualname__: obj.state_dict() for obj in ensure_tuple(obj)}
+
     def state_dict(self) -> Dict[str, Any]:
         """Collect the state dicts of our serializable attributes.
 
@@ -758,46 +787,21 @@ class State(Serializable):
             Dict[str, Any]: The state dict.
         """
         state_dict = {}
-
-        for attribute_name in self.serialized_attributes:
-            attribute_value = getattr(self, attribute_name)
-            if attribute_name == 'dataset_state':
-                serialized_value = self._dataset_state_dict()
-            elif attribute_name == 'model':
-                # Save model directly instead of by class name, since model may be wrapped by DistributedDataParallel
-                # If it is DDP wrapped, do not save the `module.` prefix, as that is an implementation detail
-                if self.fsdp_enabled and self.fsdp_state_dict_type is not None:
-                    with fsdp_state_dict_type_context(attribute_value, state_dict_type=self.fsdp_state_dict_type):
-                        model_state = attribute_value.state_dict()
-                else:
-                    model_state = attribute_value.state_dict()
-
-                if self.is_model_ddp:
-                    torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(model_state, 'module.')
-                serialized_value = model_state
-            elif attribute_name == 'optimizers':
-                optimizer = ensure_tuple(attribute_value)[
-                    0]  # Let's stop pretending. We don't support more than one optimizer.
-                if self.fsdp_enabled and self.fsdp_state_dict_type is not None:
-                    optim_state_dict = {
-                        type(optimizer).__qualname__:
-                            fsdp_get_optim_state_dict(self.model, optimizer, state_dict_type=self.fsdp_state_dict_type)
-                    }
-                else:
-                    optim_state_dict = {type(optimizer).__qualname__: optimizer.state_dict()}
-                serialized_value = optim_state_dict
-            elif attribute_name == 'algorithms':
-                # Store as list to preserve order in which algorithms were applied
-                serialized_value = [(type(obj).__qualname__, obj.state_dict()) for obj in ensure_tuple(attribute_value)]
-            elif attribute_name in _STATE_DICT_SERIALIZED_ATTRIBUTES:
-                serialized_value = {type(obj).__qualname__: obj.state_dict() for obj in ensure_tuple(attribute_value)}
-            else:
-                serialized_value = attribute_value
-
-            state_dict[attribute_name] = serialized_value
-
+        
+        state_dict['model'] = self._model_state_dict()
+        state_dict['optimizers'] = self._optimizer_state_dict()
+        state_dict['dataset_state'] = self._dataset_state_dict()
+        state_dict['algorithms'] = [(type(algo).__qualname__, algo.state_dict()) for algo in self.algorithms]
+        state_dict['schedulers'] = self._create_state_dict_for_attribute(self.schedulers)
+        state_dict['callbacks'] = self._create_state_dict_for_attribute(self.callbacks)
+        state_dict['scaler'] = self._create_state_dict_for_attribute(self.scaler)
+        state_dict['timestamp'] = self._create_state_dict_for_attribute(self.timestamp)
         state_dict['integrations'] = self._get_integrations_state_dict()
         state_dict['metadata'] = self._get_state_metadata()
+        state_dict['rank_zero_seed'] = self.rank_zero_seed
+        state_dict['train_metrics'] = self.train_metrics
+        state_dict['eval_metrics'] = self.eval_metrics
+        state_dict['run_name'] = self.run_name
 
         return state_dict
 

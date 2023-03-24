@@ -8,20 +8,25 @@ from __future__ import annotations
 import logging
 import os
 import pathlib
+from pathlib import Path
 import tempfile
 import textwrap
 from typing import Callable, List, Optional, Union
+import shutil
 
 from composer.core import Callback, Event, State, Time, TimeUnit
 from composer.loggers import Logger
 from composer.utils import (FORMAT_NAME_WITH_DIST_AND_TIME_TABLE, FORMAT_NAME_WITH_DIST_TABLE, PartialFilePath,
                             checkpoint, create_symlink_file, dist, ensure_folder_has_no_conflicting_files,
-                            format_name_with_dist, is_model_deepspeed, reproducibility)
+                            format_name_with_dist, is_model_deepspeed, reproducibility, strip_rank_placeholders, format_name_with_dist_and_time)
+
+from composer.utils.checkpoint import _TORCH_DISTRIBUTED_CHECKPOINTS_FILENAME
 
 log = logging.getLogger(__name__)
 
 __all__ = ['CheckpointSaver', 'checkpoint_periodically']
 
+_TORCH_DISTRIBUTED_CHECKPOINTS_METADATA_FILENAME = '.metadata'
 
 def checkpoint_periodically(interval: Union[str, int, Time]) -> Callable[[State, Event], bool]:
     r"""Helper function to create a checkpoint scheduler according to a specified interval.
@@ -310,11 +315,14 @@ class CheckpointSaver(Callback):  # noqa: D101
 
         self.overwrite = overwrite
         self.saved_checkpoints: List[str] = []
+        self.saved_metadata_files: List[str] = []
         self.num_checkpoints_to_keep = num_checkpoints_to_keep
         self.weights_only = weights_only
+        self.fsdp_sharded_state_dict_enabled: Optional[bool] = None
 
     def init(self, state: State, logger: Logger) -> None:
         folder = format_name_with_dist(self.folder, state.run_name)
+        self.fsdp_sharded_state_dict_enabled = state.fsdp_sharded_state_dict_enabled
         os.makedirs(folder, exist_ok=True)
 
     def fit_start(self, state: State, logger: Logger) -> None:
@@ -358,11 +366,11 @@ class CheckpointSaver(Callback):  # noqa: D101
             raise ValueError(f'Save filename {self.filename.filename} must have {{rank}} for deepspeed.')
 
         # save the checkpoint to the filename
-        filename = self.filename.format(state, is_deepspeed)
+        filename_with_placeholders = self.filename.format(state, is_deepspeed, keep_placeholders=True)
 
         saved_path = checkpoint.save_checkpoint(
             state=state,
-            filename=filename,
+            filename=filename_with_placeholders,
             weights_only=self.weights_only,
             overwrite=self.overwrite,
         )
@@ -377,17 +385,41 @@ class CheckpointSaver(Callback):  # noqa: D101
                 os.remove(symlink)
             except FileNotFoundError:
                 pass
-            os.symlink(os.path.relpath(filename, os.path.dirname(symlink)), symlink)
+            os.symlink(os.path.relpath(saved_path, os.path.dirname(symlink)), symlink)
 
         # if remote file name provided, upload the checkpoint
         if self.remote_file_name is not None:
-            remote_file_name = self.remote_file_name.format(
-                state,
-                is_deepspeed,
-            ).lstrip('/')
-
-            logger.upload_file(remote_file_name=remote_file_name, file_path=filename, overwrite=self.overwrite)
-
+ 
+            # Remove suffix to turn the remote_file_name into a path. 
+            # e.g. s3://my-bucket/path/to/checkpoints/ep1-ba2-rank3.pt is now s3://my-bucket/path/to/checkpoints/ep1-ba2-rank3/__3_0.distcp
+            if state.fsdp_sharded_state_dict_enabled:
+                remote_file_name = self.remote_file_name.format(
+                                                                state,
+                                                                is_deepspeed,
+                                                                keep_placeholders=True,
+                                                            ).lstrip('/')
+                remote_file_name = strip_rank_placeholders(remote_file_name)
+                remote_file_path = str(Path(remote_file_name).parent / Path(remote_file_name).stem).rstrip('-').rstrip('_')
+                remote_file_name = str(Path(remote_file_path) / Path(_TORCH_DISTRIBUTED_CHECKPOINTS_FILENAME))
+                remote_file_name = format_name_with_dist_and_time(remote_file_name, state.run_name, state.timestamp)
+                assert saved_path is not None # pyright
+                logger.upload_file(remote_file_name=remote_file_name, file_path=saved_path, overwrite=self.overwrite)
+                
+                if dist.get_global_rank() == 0:
+                    # Upload metadta file.
+                    local_metadata_filepath = str(Path(saved_path).parent / Path(_TORCH_DISTRIBUTED_CHECKPOINTS_METADATA_FILENAME))
+                    remote_metadata_filename = str(Path(remote_file_path) / Path(_TORCH_DISTRIBUTED_CHECKPOINTS_METADATA_FILENAME))
+                    remote_metadata_filename = format_name_with_dist_and_time(remote_metadata_filename, state.run_name, state.timestamp)
+                    logger.upload_file(remote_file_name=remote_metadata_filename, file_path=local_metadata_filepath, overwrite=self.overwrite)
+            else:
+                remote_file_name = self.remote_file_name.format(
+                                                                state,
+                                                                is_deepspeed,
+                                                            ).lstrip('/')
+                assert saved_path is not None # pyright
+                logger.upload_file(remote_file_name=remote_file_name, file_path=saved_path, overwrite=self.overwrite)
+            
+        
             if self.latest_remote_file_name is not None:
                 symlink_name = self.latest_remote_file_name.format(
                     state,
@@ -408,10 +440,21 @@ class CheckpointSaver(Callback):  # noqa: D101
         # added to saved_checkpoints.
         self.saved_checkpoints.append(saved_path)
 
+        if state.fsdp_sharded_state_dict_enabled and dist.get_global_rank() == 0:
+            self.saved_metadata_files.append(local_metadata_filepath)
+
         if self.num_checkpoints_to_keep >= 0:
             self._rotate_checkpoints()
 
     def _rotate_checkpoints(self):
         while len(self.saved_checkpoints) > self.num_checkpoints_to_keep:
             checkpoint = self.saved_checkpoints.pop(0)
-            os.remove(checkpoint)
+            # For sharding we use a directory with all the checkpoints, so
+            # we need to remove the whole directory. We have local rank 0
+            # responsible for removing this directory.
+            if self.fsdp_sharded_state_dict_enabled:
+                if dist.get_local_rank() == 0:
+                    save_dir = str(Path(checkpoint).parent)
+                    shutil.rmtree(save_dir)
+            else:
+                os.remove(checkpoint)

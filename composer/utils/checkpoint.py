@@ -22,7 +22,7 @@ import torch
 
 from composer.utils import dist, reproducibility
 from composer.utils.file_helpers import (FORMAT_NAME_WITH_DIST_AND_TIME_TABLE, format_name_with_dist,
-                                         format_name_with_dist_and_time, get_file, is_tar)
+                                         format_name_with_dist_and_time, get_file, is_tar, strip_rank_placeholders)
 from composer.utils.misc import is_model_deepspeed
 from composer.utils.object_store import ObjectStore
 
@@ -38,7 +38,6 @@ __all__ = ['load_checkpoint', 'save_checkpoint', 'download_checkpoint']
 _COMPOSER_STATES_FILENAME = 'composer_states.pt'
 _DEEPSPEED_TAG = 'deepspeed'  # always tag with the same, deterministic name. We'll rename the tarball to the appropriate name.
 _TORCH_DISTRIBUTED_CHECKPOINTS_FILENAME = f'__{dist.get_global_rank()}_0.distcp'
-_TORCH_DISTRIBUTED_CHECKPOINTS_METADATA_FILENAME = '.metadata'
 
 def _format_path_with_rank_zero(path: str) -> str:
     """Formats ``path`` with the rank zero values."""
@@ -77,9 +76,20 @@ class PartialFilePath:
         self.folder = folder
         self.filename = filename
 
-    def format(self, state: State, is_deepspeed: bool = False) -> str:
+    def _format_with_placeholders(self, extra_suffix: str = ''):
+        if self.folder:
+            return os.path.join(
+                self.folder, self.filename,
+            ) + extra_suffix
+        else:
+            return self.filename + extra_suffix
+
+
+    def format(self, state: State, is_deepspeed: bool = False, keep_placeholders: bool = False) -> str:
         # if filename already has a suffix (e.g. file.pt), this would append to be file.pt.tar
         extra_suffix = '.tar' if is_deepspeed and not is_tar(self.filename) else ''
+        if keep_placeholders:
+            return self._format_with_placeholders(extra_suffix=extra_suffix)
         if self.folder:
             return os.path.join(
                 format_name_with_dist(self.folder, state.run_name),
@@ -507,6 +517,7 @@ def save_checkpoint(
     }
     if weights_only and not is_deepspeed:
         state_dict['state'] = {'model': state_dict['state']['model']}
+    
 
     if state.fsdp_sharded_state_dict_enabled:
         save_filename = _save_fsdp_sharded_checkpoint(state_dict, filename, state, overwrite)
@@ -537,35 +548,41 @@ def save_checkpoint(
         # no file saved
         return None
 
-def _save_fsdp_sharded_checkpoint(self, state_dict: Dict[str, Any], filename:str, state: State, overwrite: bool):
+def _save_fsdp_sharded_checkpoint(state_dict: Dict[str, Any], save_filename:str, state: State, overwrite: bool):
     if version.parse(torch.__version__) < version.parse('2.0.0'):
         raise RuntimeError('To save FSDP sharded checkpoints (fsdp_state_dict_type is either "local" or "sharded") with Composer, you must use torch>=2.0.0.')
-    from torch.distributed import checkpoint
+    from torch.distributed import checkpoint as dist_checkpoint
+  
+    # Remove all rank placeholders, so that all ranks get the same folder to save checkpoints.
+    # This is important because they all need access to the same metadata file.
+    save_filename = strip_rank_placeholders(save_filename)
 
-
-    # remove rank from filename because torch.distributed.checkpoint inserts it own rank stuff.
-    filename = filename.replace('rank{rank}', '').replace('{rank}', 'i')
-    save_filename = format_name_with_dist_and_time(
-                        filename,
+    # Instead of using a filename, torch.distributed.checkpoint want a directory, so turn filename into a directory
+    # because we want the directory to have the same identifying characteristics as the file.
+    # Remove .pt suffix to make this a directory.
+    save_dir = str(Path(save_filename).parent / Path(save_filename).stem)
+    # Remove any trailing hyphens or underscores.
+    save_dir = save_dir.rstrip('-').rstrip('_')
+    # Fill in remaining placeholders
+    save_dir = format_name_with_dist_and_time(
+                        save_dir,
                         state.run_name,
                         state.timestamp
                         )
-    # Instead of using a filename, torch.distributed.checkpoint want a directory, so turn filename into a directory
-    # because we want the directory to have the same identifying characteristics as the file.
-    save_dir = str(Path(save_filename).parent / Path(save_filename).stem) # Remove .pt suffix.
     if os.path.exists(save_dir):
-        if len(os.listdir(save_dir)) > 0:
-            if overwrite:
-                os.rmdir(str(save_dir))
-            else:
-                raise RuntimeError(textwrap.dedent(f'For saving FSDP sharded checkpoints (fsdp_state_dict_type is either "local" or "sharded")', 
-                                                f'with Composer, you must use an empty or nonexistent directory, but found {str(save_dir)}',
-                                                'to be existing and nonempty and overwrite to be set to false.'))
-    else:
-        os.makedirs(save_dir, exist_ok=False)
+        if not overwrite and len(os.listdir(save_dir)) > 0:
+            raise RuntimeError(textwrap.dedent(f'For saving FSDP sharded checkpoints with Composer, ' 
+                                            f'you must use an empty or nonexistent directory, but found {str(save_dir)} '
+                                            'to be existing and nonempty and overwrite to be set to False. '
+                                            f'Please either delete the contents of {str(save_dir)}, specify a different save_folder '
+                                            'or set overwrite to True'))
+        elif overwrite:
+            os.rmdir(str(save_dir))
 
-    fsw = checkpoint.FileSystemWriter(save_dir)
-    checkpoint.save_state_dict(state_dict=state_dict, storage_writer=fsw)
+    #os.makedirs(save_dir, exist_ok=True)
+
+    fsw = dist_checkpoint.FileSystemWriter(save_dir)
+    dist_checkpoint.save_state_dict(state_dict=state_dict, storage_writer=fsw)
     save_filepath = str(Path(save_dir) / Path(_TORCH_DISTRIBUTED_CHECKPOINTS_FILENAME))
     return save_filepath
 
