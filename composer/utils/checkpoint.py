@@ -512,11 +512,11 @@ def save_checkpoint(
     is_deepspeed = is_model_deepspeed(state.model)
 
     state_dict = {
-        'state': state.state_dict(),
+        **state.state_dict(),
         'rng': reproducibility.get_rng_state(),
     }
     if weights_only and not is_deepspeed:
-        state_dict['state'] = {'model': state_dict['state']['model']}
+        state_dict = {'model': state_dict['model']}
     
 
     if state.fsdp_sharded_state_dict_enabled:
