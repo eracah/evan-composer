@@ -79,7 +79,9 @@ def get_trainer(save_folder=None,
                 autoresume=False,
                 run_name=None,
                 python_log_level=None,
-                max_duration='2ba'
+                max_duration='2ba',
+                save_num_checkpoints_to_keep=-1,
+                save_weights_only=False,
                 ):
     model = SimpleModel(num_features=num_features, num_classes=num_classes)
     dataset = RandomClassificationDataset(shape=(num_features, 1, 1), size=128)
@@ -99,35 +101,54 @@ def get_trainer(save_folder=None,
         save_interval='2ba',
         save_filename=save_filename,
         save_overwrite=False,
+        save_weights_only=save_weights_only,
         load_path=load_path,
         progress_bar=False,
         log_to_console=False,
         autoresume=autoresume,
         run_name=run_name,
         python_log_level=python_log_level,
-        save_latest_filename=None
+        save_latest_filename=None,
+        save_num_checkpoints_to_keep=save_num_checkpoints_to_keep,
     )
     return trainer
 
 if __name__ == '__main__':
-    from torch.distributed import checkpoint
+    from torch.distributed import checkpoint as dist_cp
+    from torch.distributed.checkpoint.optimizer import load_sharded_optimizer_state_dict
+    from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
+    from torch.distributed.fsdp.fully_sharded_data_parallel import StateDictType
+    from torch.distributed.checkpoint.default_planner import DefaultLoadPlanner, DefaultSavePlanner
+    import time
+    from composer.core.state import fsdp_state_dict_type_context
     ## Save
-    trainer = get_trainer(fsdp_state_dict_type='local')
-    msd = trainer.state.model.state_dict()
-    if dist.get_global_rank() == 0:
-        print(msd)
-    fsw = checkpoint.FileSystemWriter(f"./checkpoint/")
-    tsd = trainer.state.state_dict()['model']
-    md = checkpoint.save_state_dict(tsd, fsw)
-    print(md)
+    # # # s3_folder = 's3://mosaicml-internal-checkpoints-test/evan-test/test_sharded_checkpoints/{run_name}'
+    local_folder = 'test_checkpoints/{run_name}'
+    trainer = get_trainer(save_folder=local_folder,
+                          save_weights_only=False,
+                          max_duration='2ba',
+                          fsdp_state_dict_type='local',
+                          save_num_checkpoints_to_keep=1)
+    run_name = trainer.state.run_name
+    trainer.fit()
+    trainer.close()
     
+
+    # ## Load
+    trainer2 = get_trainer(fsdp_state_dict_type='local')
+
+    sd = {'model' : trainer2.state.state_dict()['model']}
+    storage_reader  = dist_cp.FileSystemReader(f"./test_checkpoints/{run_name}/ba2")
     
-    # # trainer.fit()
+    dist_cp.load_state_dict(sd, storage_reader)
 
+    trainer2.state.load_model_state(sd, trainer2.logger, strict=True)
+    
+    optim_state = load_sharded_optimizer_state_dict(
+        model_state_dict=sd["model"],
+        optimizer_key="optimizers",
+        storage_reader=storage_reader,
+    )
+    trainer2.state.load_optim_state(optim_state)
 
-    ## Load
-    # trainer2 = get_trainer(fsdp_state_dict_type='local')
-    fsl = checkpoint.FileSystemReader(f"./checkpoint/")
-    # with torch.no_grad():
-    #     checkpoint.load_state_dict(state_dict=trainer2.state.state_dict()['model'], storage_reader=fsl)
    
