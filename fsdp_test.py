@@ -82,6 +82,8 @@ def get_trainer(save_folder=None,
                 max_duration='2ba',
                 save_num_checkpoints_to_keep=-1,
                 save_weights_only=False,
+                load_weights_only=False,
+                log_to_console=False
                 ):
     model = SimpleModel(num_features=num_features, num_classes=num_classes)
     dataset = RandomClassificationDataset(shape=(num_features, 1, 1), size=128)
@@ -103,8 +105,9 @@ def get_trainer(save_folder=None,
         save_overwrite=False,
         save_weights_only=save_weights_only,
         load_path=load_path,
+        load_weights_only=load_weights_only,
         progress_bar=False,
-        log_to_console=False,
+        log_to_console=log_to_console,
         autoresume=autoresume,
         run_name=run_name,
         python_log_level=python_log_level,
@@ -126,29 +129,36 @@ if __name__ == '__main__':
     local_folder = 'test_checkpoints/{run_name}'
     trainer = get_trainer(save_folder=local_folder,
                           save_weights_only=False,
-                          max_duration='2ba',
+                          max_duration='4ba',
                           fsdp_state_dict_type='local',
                           save_num_checkpoints_to_keep=1)
     run_name = trainer.state.run_name
     trainer.fit()
+    #print(trainer.state.state_dict()['optimizers']['state']['module.2.weight']['exp_avg'].local_tensor())
     trainer.close()
     
 
     # ## Load
-    trainer2 = get_trainer(fsdp_state_dict_type='local')
-
-    sd = {'model' : trainer2.state.state_dict()['model']}
-    storage_reader  = dist_cp.FileSystemReader(f"./test_checkpoints/{run_name}/ba2")
+    trainer2 = get_trainer(fsdp_state_dict_type='local',
+                           max_duration='4ba',
+                           load_weights_only=False,
+                           load_path=f"./test_checkpoints/{run_name}/ba2"
+                           )
+    # trainer2.fit()
+    #print(trainer2.state.state_dict()['model']['module.2.weight'].local_tensor())
+    # sd = {'model' : trainer2.state.state_dict()['model']}
+    # storage_reader  = dist_cp.FileSystemReader(f"./test_checkpoints/{run_name}/ba2")
     
-    dist_cp.load_state_dict(sd, storage_reader)
-
-    trainer2.state.load_model_state(sd, trainer2.logger, strict=True)
-    
-    optim_state = load_sharded_optimizer_state_dict(
-        model_state_dict=sd["model"],
-        optimizer_key="optimizers",
-        storage_reader=storage_reader,
-    )
-    trainer2.state.load_optim_state(optim_state)
+    # # dist_cp.load_state_dict(sd, storage_reader)
+    # print(trainer2.state._optimizer_state_dict()['state']['module.2.weight']['exp_avg'].local_tensor())
+    # # trainer2.state.load_model_state(sd, trainer2.logger, strict=True)
+    # optim_state = load_sharded_optimizer_state_dict(
+    #     model_state_dict=trainer2.state.state_dict()['model'],
+    #     optimizer_key="optimizers",
+    #     storage_reader=storage_reader,
+    # )
+    # print(optim_state['optimizers']['state']['module.2.weight']['exp_avg'].local_tensor())
+    # trainer2.state.load_optim_state(optim_state)
+    # print(trainer2.state._optimizer_state_dict()['state']['module.2.weight']['exp_avg'].local_tensor())
 
    

@@ -19,13 +19,16 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader, Dataset
 from torchmetrics import Metric
 from torchmetrics.metric import jit_distributed_available
-
+import os
+from pathlib import Path
 from composer.core.data_spec import DataSpec
 from composer.core.event import Event
 from composer.core.precision import Precision
 from composer.core.serializable import Serializable
 from composer.core.time import Time, Timestamp, TimeUnit
 from composer.devices import Device
+from composer.utils.file_helpers import glob_filter
+from composer.utils import safe_torch_load
 from composer.utils import batch_get, batch_set, dist, ensure_tuple, get_composer_env_dict, is_model_deepspeed
 
 if TYPE_CHECKING:
@@ -768,7 +771,6 @@ class State(Serializable):
             raise RuntimeError('To use FSDP with Composer, you must use torch>=1.13.0.')
         from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
         optimizer = ensure_tuple(self.optimizers)[0]
-        #optimizer_name = type(optimizer).__qualname__
 
         if self.fsdp_enabled and self.fsdp_state_dict_type is not None:
             with fsdp_state_dict_type_context(self.model, state_dict_type=self.fsdp_state_dict_type):
@@ -1007,6 +1009,7 @@ class State(Serializable):
         strict: bool = False,
         exclude_algorithms: Optional[List[str]] = None,
         algorithm_passes: Optional[List[AlgorithmPass]] = None,
+        load_weights_only: bool = False,
     ):
         """Loads the state.
 
@@ -1018,7 +1021,17 @@ class State(Serializable):
             exclude_algorithms (List[str], optional): List of algorithm names to exclude from autoloading. (default: ``None``)
             algorithm_passes (List[AlgorithmPass], optional): A list of algorithm passes to apply to autoloaded algorithms
                 to sort them into the correct order. (default: ``None``)
+            load_weights_only (bool): Whether to only load the weights of the model. Defaults to False.
         """
+        if load_weights_only:
+            return self.load_model_state(
+                state,
+                logger,
+                strict=strict,
+                exclude_algorithms=exclude_algorithms,
+                algorithm_passes=algorithm_passes,
+            )
+        
         state = _ensure_backwards_compatible_checkpointing(state)
 
         # Call load_model_state since it applies required algorithms
@@ -1082,6 +1095,81 @@ class State(Serializable):
                 except AttributeError:
                     # ignore AttributeError for properties that have getters but not setters.
                     pass
+
+    def load_checkpoint_from_local_file(
+        self,
+        checkpoint_path: str,
+        logger: Logger,
+        strict_model_weights: bool,
+        ignore_keys: Optional[Union[List[str], Callable[[Dict], None]]],
+        exclude_algorithms: Optional[List[str]] = None,
+        algorithm_passes: Optional[List[AlgorithmPass]] = None,
+        load_weights_only: bool = False,
+    ):
+        """Loads the checkpoint from a local file.
+        Args:
+            checkpoint_path (str): The path to the checkpoint file or directory if using sharded.
+            logger (Logger): The logger.
+            strict_model_weights (bool): whether the keys in the ``state["model"]`` should perfectly match the keys in the
+                ``self.model``. Defaults to False.
+            ignore_keys (List[str], optional): List of keys to ignore when loading the model weights. (default: ``None``)
+            exclude_algorithms (List[str], optional): List of algorithm names to exclude from autoloading. (default: ``None``)
+            algorithm_passes (List[AlgorithmPass], optional): A list of algorithm passes to apply to autoloaded algorithms
+                to sort them into the correct order. (default: ``None``)
+            load_weights_only (bool): Whether to only load the weights of the model. Defaults to False.
+        """
+
+        if not self.fsdp_sharded_state_dict_enabled:
+            state_dict = torch.load(checkpoint_path)
+            if ignore_keys:
+                # Filter provided list of key paths
+                if not callable(ignore_keys):
+                    ignore_keys = glob_filter(ignore_keys)
+                # Call function to modify state_dict
+                ignore_keys(state_dict)
+            self.load_state_dict(
+                state_dict,
+                logger,
+                strict=strict_model_weights,
+                exclude_algorithms=exclude_algorithms,
+                algorithm_passes=algorithm_passes,
+                load_weights_only=load_weights_only,
+            )
+            if load_weights_only:
+                return
+            else:
+                return state_dict['rng']
+        else: # Sharded checkpoint load
+
+            if not os.path.isdir(checkpoint_path):
+                raise ValueError(f'checkpoint_path must be a directory when using sharded state dict. Got {checkpoint_path}')
+            if version.parse(torch.__version__) < version.parse('2.0.0'):
+                raise ValueError(f'Sharded checkpoint loading requires torch version >= 2.0.0 Got {torch.__version__}')
+
+            from torch.distributed import checkpoint as dist_cp
+            from torch.distributed.checkpoint.optimizer import load_sharded_optimizer_state_dict
+            from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
+            storage_reader  = dist_cp.FileSystemReader(checkpoint_path)
+
+
+            # 1. Load just model first.
+            model_state_dict = {'model' : self.state_dict()['model']}
+            dist_cp.load_state_dict(model_state_dict, storage_reader)
+            self.load_state_dict(
+                model_state_dict,
+                logger,
+                strict=strict_model_weights,
+                exclude_algorithms=exclude_algorithms,
+                algorithm_passes=algorithm_passes,
+                load_weights_only=True,
+            )
+
+            if not load_weights_only:
+                optim_state = load_sharded_optimizer_state_dict(
+                                model_state_dict=self.state_dict()['model'],
+                                optimizer_key="optimizers",
+                                storage_reader=storage_reader)
+                self.load_optim_state(optim_state)
 
     @property
     def dataloader(self):

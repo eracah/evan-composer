@@ -12,7 +12,7 @@ import re
 import tempfile
 import uuid
 import warnings
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union, Callable
 from urllib.parse import urlparse
 
 import requests
@@ -31,8 +31,76 @@ log = logging.getLogger(__name__)
 __all__ = [
     'get_file', 'ensure_folder_is_empty', 'ensure_folder_has_no_conflicting_files', 'format_name_with_dist',
     'format_name_with_dist_and_time', 'is_tar', 'create_symlink_file', 'maybe_create_object_store_from_uri',
-    'maybe_create_remote_uploader_downloader_from_uri', 'parse_uri'
+    'maybe_create_remote_uploader_downloader_from_uri', 'parse_uri', 'glob_filter', 'strip_rank_placeholders'
 ]
+
+
+def glob_filter(exclude_globs: List[str]) -> Callable[[Dict], None]:
+    """Provides a function which deletes all subparts of a dictionary based on a list of paths."""
+
+    def filter_func(state_dict: Dict) -> None:
+        # Flatten dictionary into paths
+        paths = []
+        _flatten_keys(state_dict, paths, '/')
+
+        filtered_paths = []
+        for exclude_glob in exclude_globs:
+            filtered_paths_from_glob = fnmatch.filter(paths, exclude_glob)
+            if len(filtered_paths_from_glob) == 0:
+                warnings.warn(
+                    f'No parts from loaded checkpoint state_dict were ignored by load_ignore_key {exclude_glob}')
+            filtered_paths.extend(filtered_paths_from_glob)
+        filtered_paths = list(set(filtered_paths))
+        filtered_paths_str = ', '.join(filtered_paths)
+        if filtered_paths:
+            log.info(f'Ignoring the following paths from the loaded checkpoint state_dict: {filtered_paths_str}')
+
+        # Loop through all paths to exclude
+        paths_to_remove = [path.split('/') for path in filtered_paths]
+        _remove_paths(state_dict, paths_to_remove)
+
+    return filter_func
+
+
+def _remove_paths(obj: Union[list, Dict[str, Any]], exclude_paths: List[List[str]]):
+    # First determine the keys which will be recursed on and which will be removed entirely
+    # Group the `exclude_paths` by the key
+    keys_to_recurse = {}
+    keys_to_remove = []
+    for exclude_path_parts in exclude_paths:
+        key = exclude_path_parts[0]
+        if isinstance(obj, list):
+            key = int(key)
+        if len(exclude_path_parts) == 1:
+            keys_to_remove.append(key)
+        else:
+            if key not in keys_to_recurse:
+                keys_to_recurse[key] = []
+            keys_to_recurse[key].append(exclude_path_parts[1:])
+
+    # Recurse first, so in the case of a list, the indexing is consistent
+    for key, paths_to_recurse in keys_to_recurse.items():
+        _remove_paths(obj[key], paths_to_recurse)
+
+    # Sort the keys in reverse order, so in the case of a list, the indexing is consistent
+    keys_to_remove.sort(reverse=True)
+
+    # Remove the keys
+    for key in keys_to_remove:
+        del obj[key]
+
+def _flatten_keys(obj: Any, paths: List[str], existing_path: str):
+    """Recursively flatten the keys of a dictionary or list into a set of paths."""
+    # Store path when we reach end, which is either non-Dict or empty Dict
+    if isinstance(obj, list) and len(obj) > 0:
+        for i, elm in enumerate(obj):
+            _flatten_keys(elm, paths, f'{existing_path}/{i}')
+    elif isinstance(obj, dict) and len(obj) > 0:
+        for k, v in obj.items():
+            _flatten_keys(v, paths, f'{existing_path}/{k}')
+    # Remove leading /
+    paths.append(existing_path.lstrip('/'))
+
 
 
 def strip_rank_placeholders(path: str) -> str:
