@@ -392,34 +392,46 @@ def _restore_checkpoint(
     """Restore a checkpoint into ``state`` and returns the rng state dicts (if ``load_weights_only`` is False)."""
 
     if is_model_deepspeed(state.model):
-        if extracted_checkpoint_folder is None:
-            raise RuntimeError('Deepspeed checkpoints require a tarball, not a weights file.')
-
-        global_rank = dist.get_global_rank()
-        if global_rank > 0 and not extracted_rank_n:
-            raise RuntimeError(f'Deepspeed checkpoint missing for rank {global_rank}')
-
-        load_path, _ = state.deepspeed_model.load_checkpoint(
-            extracted_checkpoint_folder,
-            tag=_DEEPSPEED_TAG,
-            load_module_only=load_weights_only,
-            load_module_strict=strict_model_weights,
-        )
-        if load_path is None:
-            raise RuntimeError(f'Failed to load DeepSpeed checkpoint')
+        _load_deepspeed_model_from_local_files(state, 
+                                               extracted_rank_n, 
+                                               extracted_checkpoint_folder,
+                                               load_weights_only,
+                                               strict_model_weights)
         
     else:
         # Returns the rng state dicts (if ``load_weights_only`` is False)
         return state.load_checkpoint_from_local_file(
-                checkpoint_path=composer_states_filepath,
-                logger=logger,
-                strict_model_weights=strict_model_weights,
-                ignore_keys=ignore_keys,
-                exclude_algorithms=exclude_algorithms,
-                algorithm_passes=algorithm_passes,
-                load_weights_only=load_weights_only,
+                        checkpoint_path=composer_states_filepath,
+                        logger=logger,
+                        strict_model_weights=strict_model_weights,
+                        ignore_keys=ignore_keys,
+                        exclude_algorithms=exclude_algorithms,
+                        algorithm_passes=algorithm_passes,
+                        load_weights_only=load_weights_only,
         )
 
+def _load_deepspeed_model_from_local_files(
+    state: State,
+    extracted_rank_n: bool,
+    extracted_checkpoint_folder: Optional[str],
+    load_weights_only: bool,
+    strict_model_weights: bool):
+
+    if extracted_checkpoint_folder is None:
+        raise RuntimeError('Deepspeed checkpoints require a tarball, not a weights file.')
+
+    global_rank = dist.get_global_rank()
+    if global_rank > 0 and not extracted_rank_n:
+        raise RuntimeError(f'Deepspeed checkpoint missing for rank {global_rank}')
+
+    load_path, _ = state.deepspeed_model.load_checkpoint(
+        extracted_checkpoint_folder,
+        tag=_DEEPSPEED_TAG,
+        load_module_only=load_weights_only,
+        load_module_strict=strict_model_weights,
+    )
+    if load_path is None:
+        raise RuntimeError(f'Failed to load DeepSpeed checkpoint')
 
 def save_checkpoint(
     state: State,
@@ -429,52 +441,62 @@ def save_checkpoint(
     overwrite: bool = False,
 ) -> Union[str, None]:  # noqa: D103
 
-    log.debug('Saving checkpoint to %s', filename)
-
-    is_deepspeed = is_model_deepspeed(state.model)
-
-    state_dict = {
-        **state.state_dict(),
-        'rng': reproducibility.get_rng_state(),
-    }
-    if weights_only and not is_deepspeed:
-        state_dict = {'model': state_dict['model']}
-    
-
     if state.fsdp_sharded_state_dict_enabled:
-        save_filename = _save_fsdp_sharded_checkpoint(state_dict, filename, state, overwrite)
+        save_filename = _save_fsdp_sharded_checkpoint(state, filename, weights_only, overwrite)
+    elif is_model_deepspeed(state.model):
+        save_filename = _save_deepspeed_model(state, filename)
     else:
-        save_filename = PartialFilePath(filename).format(state, is_deepspeed)
-        dirname = os.path.dirname(save_filename)
-        if dirname:
-            os.makedirs(dirname, exist_ok=True)
-        # all ranks save for deepspeed
-        if is_deepspeed:
-            _save_deepspeed_model(state.deepspeed_model, save_filename)
-    
-
-        # only rank 0 saves the state_dict unless state.fsdp_sharded_state_dict_enabled=True.
-        elif dist.get_global_rank() == 0:
-            with open(save_filename, 'wb') as f:
-                torch.save(state_dict, f)
-
-            if is_tar(save_filename):
-                _compress_file(save_filename, basename=_COMPOSER_STATES_FILENAME)
+        save_filename = _save_monolithic_checkpoint(state, filename, weights_only, overwrite)
 
     dist.barrier()  # ensure all ranks saved their files
 
-    if dist.get_global_rank() == 0 or is_deepspeed or state.fsdp_sharded_state_dict_enabled:
+    if save_filename is not None:
         assert os.path.exists(save_filename), 'Expected file to have been saved.'
-        return save_filename
-    else:
-        # no file saved
-        return None
+    return save_filename
 
-def _save_fsdp_sharded_checkpoint(state_dict: Dict[str, Any], save_filename:str, state: State, overwrite: bool):
+def _save_monolithic_checkpoint(state: State, filename: str,
+                                weights_only:bool, overwrite: bool) -> Union[str, None]:       
+    # only rank 0 saves the state_dict unless state.fsdp_sharded_state_dict_enabled=True.
+    if dist.get_global_rank() == 0:
+        state_dict = {
+            'state': state.state_dict(),
+            'rng': reproducibility.get_rng_state(),
+        }
+        if weights_only:
+            state_dict = {'model': state_dict['model']}
+        
+        save_filename = PartialFilePath(filename).format(state)
+        dirname = os.path.dirname(save_filename)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
+        with open(save_filename, 'wb') as f:
+            log.debug('Saving checkpoint to %s...', save_filename)
+            torch.save(state_dict, f)
+            log.debug('Successfully saved checkpoint to %s', save_filename)
+
+        if is_tar(save_filename):
+            _compress_file(save_filename, basename=_COMPOSER_STATES_FILENAME)
+    else:
+        save_filename = None 
+        log.debug('Global rank 0 is saving checkpoint, but this rank doesn''t save a checkpoint')
+    return save_filename
+
+
+def _save_fsdp_sharded_checkpoint(state: State, save_filename:str,
+                                  weights_only: bool, overwrite: bool) -> str:
     if version.parse(torch.__version__) < version.parse('2.0.0'):
         raise RuntimeError('To save FSDP sharded checkpoints (fsdp_state_dict_type is either "local" or "sharded") with Composer, you must use torch>=2.0.0.')
     from torch.distributed import checkpoint as dist_checkpoint
   
+    if weights_only:
+        state_dict = {'model': state.state_dict()['model']}
+    else:
+        # Dictionary must be flat to faciliate loading optimizer params.
+        state_dict = {
+            **state.state_dict(),
+            'rng': reproducibility.get_rng_state(),
+        }
+
     # Remove all rank placeholders, so that all ranks get the same folder to save checkpoints.
     # This is important because they all need access to the same metadata file.
     save_filename = strip_rank_placeholders(save_filename)
@@ -491,6 +513,7 @@ def _save_fsdp_sharded_checkpoint(state_dict: Dict[str, Any], save_filename:str,
                         state.run_name,
                         state.timestamp
                         )
+    log.debug('Saving sharded checkpoints to %s...', save_dir)
     if os.path.exists(save_dir):
         if not overwrite and len(os.listdir(save_dir)) > 0:
             raise RuntimeError(textwrap.dedent(f'For saving FSDP sharded checkpoints with Composer, ' 
@@ -501,12 +524,39 @@ def _save_fsdp_sharded_checkpoint(state_dict: Dict[str, Any], save_filename:str,
         elif overwrite:
             os.rmdir(str(save_dir))
 
-    #os.makedirs(save_dir, exist_ok=True)
-
     fsw = dist_checkpoint.FileSystemWriter(save_dir)
     dist_checkpoint.save_state_dict(state_dict=state_dict, storage_writer=fsw)
+
     save_filepath = str(Path(save_dir) / Path(_TORCH_DISTRIBUTED_CHECKPOINTS_FILENAME))
+    log.debug('This rank''s checkpoint shards successfully saved to %s', save_filepath)
     return save_filepath
+
+
+def _save_deepspeed_model(state: State, filename: str) -> str:
+    """Save Deepspeed model and tarball the files."""
+    save_filename = PartialFilePath(filename).format(state, is_deepspeed=True)
+    dirname = os.path.dirname(save_filename)
+    if dirname:
+        os.makedirs(dirname, exist_ok=True)
+
+    write_mode = _get_write_mode(save_filename)
+    read_mode = 'r' + write_mode[1:]
+
+    log.debug('Saving deepspeed checkpoint to %s...', save_filename)     
+    with tempfile.TemporaryDirectory() as tmpdir:
+        state.deepspeed_model.save_checkpoint(tmpdir, _DEEPSPEED_TAG)
+
+        if os.path.exists(save_filename):
+            # extract to tmpdir to append below
+            # not all compression formats support direct append
+            with tarfile.open(save_filename, read_mode) as tar:
+                tar.extractall(tmpdir)
+
+        with tarfile.open(save_filename, write_mode) as tar:
+            tar.add(tmpdir, arcname='')
+        log.debug('Successfully saved deepspeed checkpoint to %s', save_filename) 
+    return save_filename
+
 
 def _compress_file(filename: str, basename: str):
     """Replace a file with its compressed version.
@@ -521,23 +571,6 @@ def _compress_file(filename: str, basename: str):
         with tarfile.open(filename, write_mode) as tarball:
             tarball.add(tmpdir, arcname='')
 
-
-def _save_deepspeed_model(model, filename: str):
-    """Save Deepspeed model and tarball the files."""
-    write_mode = _get_write_mode(filename)
-    read_mode = 'r' + write_mode[1:]
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        model.save_checkpoint(tmpdir, _DEEPSPEED_TAG)
-
-        if os.path.exists(filename):
-            # extract to tmpdir to append below
-            # not all compression formats support direct append
-            with tarfile.open(filename, read_mode) as tar:
-                tar.extractall(tmpdir)
-
-        with tarfile.open(filename, write_mode) as tar:
-            tar.add(tmpdir, arcname='')
 
 
 save_checkpoint.__doc__ = f"""Checkpoint the training ``state``.

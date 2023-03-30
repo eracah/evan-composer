@@ -1377,8 +1377,9 @@ class Trainer:
                 exclude_algorithms=load_exclude_algorithms,
                 algorithm_passes=self.engine.algorithm_passes,
             )
-            self.state.run_name = run_name
 
+            self.state.run_name = run_name
+        print(self._rng_state)
         self.engine.run_event(Event.AFTER_LOAD)
 
         # reseed here. This helps with a couple of issues:
