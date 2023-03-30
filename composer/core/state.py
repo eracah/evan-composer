@@ -828,12 +828,12 @@ class State(Serializable):
         Returns:
             Dict[str, Any]: The state dict(s).
         """
-        if version.parse(torch.__version__) < version.parse('2.0.0'):
-            raise RuntimeError('To use FSDP with Composer, you must use torch>=1.13.0.')
-        from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
         optimizer = ensure_tuple(self.optimizers)[0]
 
         if self.fsdp_enabled:
+            if version.parse(torch.__version__) < version.parse('2.0.0'):
+                raise RuntimeError('To use FSDP with Composer, you must use torch>=1.13.0.')
+            from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
             with fsdp_state_dict_type_context(self.model, state_dict_type=self.fsdp_state_dict_type):
                 optim_state_dict = FSDP.optim_state_dict(self.model, optimizer)
         else:
