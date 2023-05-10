@@ -49,9 +49,9 @@ from composer.trainer.dist_strategy import DDPSyncStrategy, ddp_sync_context, pr
 from composer.utils import (ExportFormat, MissingConditionalImportError, ObjectStore, Transform, checkpoint, dist,
                             ensure_tuple, export_with_logger, extract_hparams, format_name_with_dist, get_device,
                             get_file, is_tpu_installed, map_collection, maybe_create_object_store_from_uri,
-                            maybe_create_remote_uploader_downloader_from_uri, model_eval_mode, parse_uri,
-                            reproducibility, using_torch_2)
+                            maybe_create_remote_uploader_downloader_from_uri, model_eval_mode, reproducibility, using_torch_2)
 from composer.utils.misc import is_model_deepspeed
+from composer.utils.misc import parse_uri
 
 if is_tpu_installed():
     import torch_xla.core.xla_model as xm

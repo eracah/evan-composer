@@ -12,8 +12,7 @@ import re
 import tempfile
 import uuid
 import warnings
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
-from urllib.parse import urlparse
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import requests
 import tqdm
@@ -21,6 +20,7 @@ import tqdm
 from composer.utils import dist
 from composer.utils.iter_helpers import iterate_with_callback
 from composer.utils.object_store import LibcloudObjectStore, ObjectStore, OCIObjectStore, S3ObjectStore
+from composer.utils.misc import parse_uri
 
 if TYPE_CHECKING:
     from composer.core import Timestamp
@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 __all__ = [
     'get_file', 'ensure_folder_is_empty', 'ensure_folder_has_no_conflicting_files', 'format_name_with_dist',
     'format_name_with_dist_and_time', 'is_tar', 'create_symlink_file', 'maybe_create_object_store_from_uri',
-    'maybe_create_remote_uploader_downloader_from_uri', 'parse_uri'
+    'maybe_create_remote_uploader_downloader_from_uri', 
 ]
 
 
@@ -302,25 +302,6 @@ Args:
     timestamp (Timestamp): The timestamp.
     extra_format_kwargs (object): Any additional :meth:`~str.format` kwargs.
 """
-
-
-def parse_uri(uri: str) -> Tuple[str, str, str]:
-    """Uses :py:func:`urllib.parse.urlparse` to parse the provided URI.
-
-    Args:
-        uri (str): The provided URI string
-
-    Returns:
-        Tuple[str, str, str]: A tuple containing the backend (e.g. s3), bucket name, and path.
-                              Backend and bucket name will be empty string if the input is a local path
-    """
-    parse_result = urlparse(uri)
-    backend, net_loc, path = parse_result.scheme, parse_result.netloc, parse_result.path
-    bucket_name = net_loc if '@' not in net_loc else net_loc.split('@')[0]
-    if backend == '' and bucket_name == '':
-        return backend, bucket_name, path
-    else:
-        return backend, bucket_name, path.lstrip('/')
 
 
 def maybe_create_object_store_from_uri(uri: str) -> Optional[ObjectStore]:
@@ -623,3 +604,4 @@ def create_symlink_file(
         raise ValueError('The symlink filename must end with .symlink.')
     with open(destination_filename, 'x') as f:
         f.write(existing_path)
+

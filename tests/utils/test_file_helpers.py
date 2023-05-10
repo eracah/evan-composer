@@ -15,8 +15,9 @@ from composer.utils import file_helpers
 from composer.utils.file_helpers import (ensure_folder_has_no_conflicting_files, ensure_folder_is_empty,
                                          format_name_with_dist, format_name_with_dist_and_time, get_file, is_tar,
                                          maybe_create_object_store_from_uri,
-                                         maybe_create_remote_uploader_downloader_from_uri, parse_uri)
+                                         maybe_create_remote_uploader_downloader_from_uri)
 from composer.utils.object_store.libcloud_object_store import LibcloudObjectStore
+from composer.utils.misc import parse_uri
 from tests.common.markers import world_size
 from tests.loggers.test_remote_uploader_downloader import DummyObjectStore
 

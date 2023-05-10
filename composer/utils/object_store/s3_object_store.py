@@ -11,6 +11,7 @@ import uuid
 from typing import Any, Callable, Dict, Optional, Union
 
 from composer.utils.import_helpers import MissingConditionalImportError
+from composer.utils.misc import parse_uri
 from composer.utils.object_store.object_store import ObjectStore
 
 __all__ = ['S3ObjectStore']
@@ -24,6 +25,9 @@ def _ensure_not_found_errors_are_wrapped(uri: str, e: Exception):
         # error: Member "response" is unknown (reportGeneralTypeIssues)
         if e.response['Error']['Code'] in _NOT_FOUND_CODES:  # type: ignore
             raise FileNotFoundError(f'Object {uri} not found') from e
+        elif e.response['Error']['Code'] in  ['NoSuchBucket']:
+            _, bucket, _ = parse_uri(uri)
+            raise FileNotFoundError(f'Bucket {bucket} from {uri} not found') from e
     raise e
 
 
@@ -81,6 +85,7 @@ class S3ObjectStore(ObjectStore):
             import boto3
             from boto3.s3.transfer import TransferConfig
             from botocore.config import Config
+            import botocore.exceptions
         except ImportError as e:
             raise MissingConditionalImportError('streaming', 'boto3') from e
 
@@ -105,9 +110,47 @@ class S3ObjectStore(ObjectStore):
             aws_secret_access_key=aws_secret_access_key,
             aws_session_token=aws_session_token,
         )
+
+        # Check if bucket exists.
+        try:
+            self.client.list_objects_v2(Bucket=self.bucket, MaxKeys=1)
+        except Exception as e:
+            _ensure_not_found_errors_are_wrapped(self.get_uri(''), e)
+
         if transfer_config is None:
             transfer_config = {}
         self.transfer_config = TransferConfig(**transfer_config)
+
+    def list_objects(self, path: str, recurse=False, show_full_paths=True, show_full_uris=False) -> list[str]:
+        _, _, folder_path = parse_uri(path)
+        folder_path = folder_path.rstrip('/')
+        try:
+            response = self.client.list_objects_v2(Bucket=self.bucket, Prefix=folder_path)
+        except Exception as e:
+            _ensure_not_found_errors_are_wrapped(self.get_uri(folder_path), e)
+        if 'Contents' in response:
+            obj_list = [item['Key'] for item in response['Contents']]
+            # Split all object keys by the folder_path suffix and then group by root folder.
+            if not recurse:
+                new_obj_list = []
+                for obj in obj_list:
+                    suffix = obj.split(folder_path)[-1]
+                    suffix = suffix.lstrip('/')
+                    suffix = suffix.split('/')[0]
+                    new_obj = os.path.join(folder_path, suffix)
+                    if new_obj not in new_obj_list:
+                        new_obj_list.append(new_obj)
+                obj_list = new_obj_list
+
+            if show_full_uris:
+                obj_list = [self.get_uri(obj) for obj in obj_list]
+            else:
+                if not show_full_paths:
+                    obj_list = [obj.split('/')[-1] for obj in obj_list]
+            return obj_list
+
+        else:
+            return []
 
     def get_uri(self, object_name: str) -> str:
         return f's3://{self.bucket}/{self.get_key(object_name)}'
