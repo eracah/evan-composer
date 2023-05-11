@@ -20,7 +20,7 @@ import tqdm
 
 from composer.utils import dist
 from composer.utils.iter_helpers import iterate_with_callback
-from composer.utils.object_store import LibcloudObjectStore, ObjectStore, OCIObjectStore, S3ObjectStore
+from composer.utils.object_store import ObjectStore, OCIObjectStore, S3ObjectStore, GCSObjectStore
 
 if TYPE_CHECKING:
     from composer.core import Timestamp
@@ -350,12 +350,7 @@ def maybe_create_object_store_from_uri(uri: str) -> Optional[ObjectStore]:
             raise ValueError(
                 'You must set the GCS_KEY and GCS_SECRET env variable with you HMAC access id and secret respectively')
 
-        return LibcloudObjectStore(
-            provider='google_storage',
-            container=bucket_name,
-            key_environ='GCS_KEY',  # Name of env variable for HMAC access id.
-            secret_environ='GCS_SECRET',  # Name of env variable for HMAC secret.
-        )
+        return GCSObjectStore(bucket=bucket_name)
     elif backend == 'oci':
         return OCIObjectStore(bucket=bucket_name)
     else:
