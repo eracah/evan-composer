@@ -78,21 +78,17 @@ def test_s3_upload(dummy_obj: pathlib.Path, s3_bucket: str, test_session_name: s
 
     cb.assert_all_data_transferred()
 
-# def test_get_uri(monkeypatch: pytest.MonkeyPatch):
-#     with mock_s3_object_store(monkeypatch) as s3_object_store:
-#         uri = s3_object_store.get_uri('tmpfile_object_name')
-#         assert uri == 's3://my-bucket/folder/subfolder/tmpfile_object_name'
+def test_get_uri(monkeypatch: pytest.MonkeyPatch):
+    with mock_s3_object_store(monkeypatch) as s3_object_store:
+        uri = s3_object_store.get_uri('tmpfile_object_name')
+        assert uri == 's3://my-bucket/folder/subfolder/tmpfile_object_name'
 
-# def test_get_file_size(self, dummy_obj: pathlib.Path, remote: bool):
-#     object_name = 'tmpfile_object_name'
-#     if remote:
-#         s3_object_store = S3ObjectStore(bucket=s3_bucket, prefix=test_session_name)
-#         object_store.upload_object(object_name, str(dummy_obj))
-#     else:
-#         with mock_s3_object_store(monkeypatch) as s3_object_store:
-#             s3_object_store.upload_object(object_name, str(dummy_obj), callback=cb)
-#     object_store.upload_object(object_name, str(dummy_obj))
-#     assert object_store.get_object_size(object_name) == dummy_obj.stat().st_size
+def test_get_file_size(self, dummy_obj: pathlib.Path, remote: bool, s3_bucket: str, test_session_name: str, monkeypatch: pytest.MonkeyPatch):
+    object_name = 'tmpfile_object_name'
+    cb = MockCallback(dummy_obj.stat().st_size)
+    with mock_s3_object_store(remote, s3_bucket, test_session_name, monkeypatch) as s3_object_store:
+        s3_object_store.upload_object(object_name, str(dummy_obj), callback=cb)
+    assert s3_object_store.get_object_size(object_name) == dummy_obj.stat().st_size
 
 # def test_get_file_size_not_found(self, object_store: ObjectStore, remote: bool):
 #     del remote  # unused
