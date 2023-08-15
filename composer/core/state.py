@@ -109,8 +109,8 @@ def fsdp_state_dict_type_context(module: torch.nn.Module, state_dict_type: str =
     if using_torch_2():
         with FSDP.state_dict_type(module,
                                   state_dict_type=fsdp_state_dict_type,
-                                  state_dict_config=state_dict_config,
-                                  optim_state_dict_config=optim_state_dict_config):
+                                  state_dict_config=state_dict_config,):
+                                #   optim_state_dict_config=optim_state_dict_config):
             yield
     else:
         with FSDP.state_dict_type(module, state_dict_type=fsdp_state_dict_type, state_dict_config=state_dict_config):
