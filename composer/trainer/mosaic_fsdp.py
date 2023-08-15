@@ -351,7 +351,6 @@ elif version.parse(torch.__version__) < version.parse('2.1.0'):
                                                     _init_runtime_state, _init_state_dict_state)
     from torch.distributed.fsdp._state_dict_utils import _register_all_state_dict_hooks
     from torch.distributed.fsdp._unshard_param_utils import _register_flat_param
-    from torch.distributed.fsdp._utils import _contains_batchnorm, _override_batchnorm_mixed_precision
     from torch.distributed.fsdp.wrap import _FSDPPolicy, _or_policy, _wrap, _wrap_batchnorm_individually
 
     def _custom_recursive_wrap_t2p0p1(
@@ -485,8 +484,7 @@ elif version.parse(torch.__version__) < version.parse('2.1.0'):
                 raise ValueError(f'Expected {module_name} to NOT be FullyShardedDataParallel '
                                  'if using an `auto_wrap_policy`')
         mixed_precision = fsdp_kwargs['mixed_precision']
-        if mixed_precision is not None and _contains_batchnorm(root_module):
-            _override_batchnorm_mixed_precision(root_module)
+        if mixed_precision is not None:
             auto_wrap_policy = functools.partial(_or_policy, policies=[_wrap_batchnorm_individually, auto_wrap_policy])
             warnings.warn('Both mixed precision and an `auto_wrap_policy` were specified '
                           'for FSDP, where the wrapped module has batch norm submodules. '
