@@ -40,6 +40,7 @@ SHARDING_MAP = {
     'NO_SHARD': ShardingStrategy.NO_SHARD,
     'SHARD_GRAD_OP': ShardingStrategy.SHARD_GRAD_OP,
     'FULL_SHARD': ShardingStrategy.FULL_SHARD,
+    'HYBRID_SHARD': ShardingStrategy.HYBRID_SHARD,
 }
 
 BACKWARD_PREFETCH_MAP = {
