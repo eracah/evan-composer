@@ -575,6 +575,10 @@ class State(Serializable):
         self.eval_metrics: Dict[str, Dict[str, Metric]] = {}
         self.train_metric_values: Dict[str, float] = {}
         self.eval_metric_values: Dict[str, float] = {}
+        # Only one dataloader used for train, so this can be list
+        self.train_outputs: List[Any] = []
+        # Potentially multiple dataloaders for eval, so this needs to be list.
+        self.eval_outputs: Dict[str, List[Any]] = {}
         self.total_loss_dict: Dict[str, float] = {}
 
     def _dataset_of(self, dataloader: Optional[Union[Evaluator, DataSpec, DataLoader, Iterable]]) -> Optional[Dataset]:

@@ -2240,6 +2240,8 @@ class Trainer:
                 model_eval_mode(self.state.model),\
                 _get_precision_context(self.state.precision, self.state.precision_config, self.state.deepspeed_enabled):
             eval_outputs = self._original_model.eval_forward(device_batch, self.state.outputs)
+            # Overwrite previous batch's value.
+            self.state.train_outputs = eval_outputs
             for metric in self.state.train_metrics.values():
                 self._original_model.update_metric(
                     device_batch,
@@ -2258,6 +2260,8 @@ class Trainer:
             return
 
         self.engine.run_event(Event.EVAL_BEFORE_ALL)
+        # Clear last eval's values
+        self.state.eval_outputs = {}
         for index, evaluator in enumerate(self.state.evaluators):
             if evaluators_executing[index]:
                 self._eval_loop(
@@ -2835,7 +2839,8 @@ class Trainer:
             if not self.state.evaluators:
                 raise ValueError('eval_dataloader must be provided to either Trainer init() or eval().')
             evaluators = self.state.evaluators
-
+        # Clear last eval's outputs.
+        self.state.eval_outputs = {}
         for evaluator in evaluators:
             eval_subset_num_batches = evaluator.subset_num_batches if subset_num_batches == -1 else subset_num_batches
             self._eval_loop(
@@ -2998,6 +3003,7 @@ class Trainer:
                                 else:
                                     outputs = self.state.outputs
 
+                                self.state.eval_outputs[evaluator.label].append(outputs)
                                 for metric in metrics.values():
                                     self._original_model.update_metric(
                                         self.state.batch,
