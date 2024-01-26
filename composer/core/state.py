@@ -574,7 +574,8 @@ class State(Serializable):
         self.train_metrics: Optional[Dict[str, Metric]] = {}
         self.eval_metrics: Dict[str, Dict[str, Metric]] = {}
         self.train_metric_values: Dict[str, float] = {}
-        self.eval_metric_values: Dict[str, float] = {}
+        # Map evalator_label and metric name to value.
+        self.eval_metric_values: Dict[str, Dict[str, float]] = {}
         # Only one dataloader used for train, so this can be list
         self.train_outputs: List[Any] = []
         # Potentially multiple dataloaders for eval, so this needs to be list.

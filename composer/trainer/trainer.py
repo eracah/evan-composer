@@ -1997,7 +1997,7 @@ class Trainer:
                 if dataloader_label not in self.state.eval_metrics:
                     self.state.eval_metrics[dataloader_label] = {}
                 self.state.eval_metrics[dataloader_label][metric_name] = metric
-                self.state.eval_metric_values[metric_name] = computed_metrics[metric_name]
+                self.state.eval_metric_values[dataloader_label][metric_name] = computed_metrics[metric_name]
 
     def _spin_dataloaders_to_cur_epoch(self):
         """Spin the dataloaders to restore sampler state for current epoch.
