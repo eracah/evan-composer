@@ -488,6 +488,15 @@ def load_sharded_checkpoint(
             # Get the tempfile made on local rank 0.
             local_rank0_index = dist.get_global_rank() - dist.get_local_rank()
             rank0_download_tempdir = str(dist.all_gather_object(temp_download_dir)[local_rank0_index])
+            if source_path.endswith('.symlink'):
+                assert False, f"source_path={source_path}"
+                symlink_filename =rank0_download_tempdir + "/symlink_file.symlink"
+                object_store.download_object(object_name=source_path, filename=symlink_filename)
+                with open(symlink_filename, 'r') as f:
+                    real_path = f.read()
+                    log.debug(f'Read path {real_path} from symlink file.')
+                source_path = real_path
+
             storage_reader = DistCPObjectStoreReader(source_path=source_path,
                                                      destination_path=str(
                                                          Path(rank0_download_tempdir) / Path('checkpoints')),
