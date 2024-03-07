@@ -598,13 +598,14 @@ def test_checkpoint_loading_with_validation(world_size, tmp_path, is_valid_check
 @world_size(2)
 @pytest.mark.parametrize('state_dict_type', ['sharded', 'local'])
 @pytest.mark.parametrize('use_remote', [pytest.param(True, marks=pytest.mark.remote), False])
-@pytest.mark.parametrize('weights_only,optimizer,precision,autoresume,load_ignore_keys', [
-    [False, 'adamw', 'amp_bf16', False, None],
-    [True, 'adamw', 'amp_bf16', False, None],
-    [False, 'adam', 'amp_bf16', False, None],
-    [False, 'adamw', 'amp_fp16', False, None],
-    [False, 'adamw', 'amp_bf16', True, None],
-    [False, 'adamw', 'amp_bf16', False, ['rng']],
+@pytest.mark.parametrize('weights_only,optimizer,precision,autoresume,load_ignore_keys,use_symlink', [
+    [False, 'adamw', 'amp_bf16', False, None, True],
+    [False, 'adamw', 'amp_bf16', False, None, False],
+    [True, 'adamw', 'amp_bf16', False, None, False],
+    [False, 'adam', 'amp_bf16', False, None, False],
+    [False, 'adamw', 'amp_fp16', False, None, False],
+    [False, 'adamw', 'amp_bf16', True, None, False],
+    [False, 'adamw', 'amp_bf16', False, ['rng'], False],
 ])
 @pytest.mark.skipif(version.parse(torch.__version__) < version.parse('1.13.0'),
                     reason='requires PyTorch 1.13 or higher')
@@ -620,6 +621,7 @@ def test_fsdp_partitioned_state_dict_load(
     optimizer: str,
     weights_only: bool,
     load_ignore_keys: Union[list[str], None],
+    use_symlink: bool,
     use_remote,
     s3_bucket,
     s3_ephemeral_prefix,
@@ -668,12 +670,11 @@ def test_fsdp_partitioned_state_dict_load(
     trainer1.close()
 
     if use_remote:
-        load_path = 's3://' + save_folder.strip('s3://').format(run_name=run_name) + '/ba2'
+        load_path = 's3://' + save_folder.strip('s3://').format(run_name=run_name) + ('/ba2' if not use_symlink else '/latest-rank0.pt.symlink')
         object_store = S3ObjectStore(bucket=f'{s3_bucket}')
     else:
         object_store = None
         load_path = str(save_folder.format(run_name=run_name) / pathlib.Path('ba2'))
-
     if not using_torch_2():
         load_filename = f"{save_filename.format(batch=2, rank='{rank}')}"
         assert load_filename == 'ba2-rank{rank}.pt'
